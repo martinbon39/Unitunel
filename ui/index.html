@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Unitunel</title>
+<style>
+@font-face { font-family: "Mono"; src: url("fonts/GeistMono-Regular.woff2") format("woff2"); }
+:root {
+  --ink: #0a0a0a;
+  --paper: #f5f5f0;
+  --px: 4px;
+  --frame: 12px;
+  --rail-w: 64px;
+  --rail-h: 260px;
+  --level: 0;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none; font: 11px/1 "Mono", ui-monospace, monospace; letter-spacing: .08em; color: var(--paper); }
+
+/* The frame: the screen seems to sink into a black pixel border while you speak. */
+#frame { position: fixed; inset: 0; pointer-events: none; opacity: 0; }
+#frame .edge { position: absolute; background: var(--ink); }
+#frame .t { top: 0; left: 0; right: 0; height: var(--frame); }
+#frame .b { bottom: 0; left: 0; right: 0; height: var(--frame); }
+#frame .l { top: 0; bottom: 0; left: 0; width: var(--frame); }
+#frame .r { top: 0; bottom: 0; right: 0; width: var(--frame); }
+#frame .corner { position: absolute; width: calc(var(--px) * 3); height: calc(var(--px) * 3); background:
+  linear-gradient(var(--ink), var(--ink)) 0 0 / 100% var(--px) no-repeat,
+  linear-gradient(var(--ink), var(--ink)) 0 0 / var(--px) 100% no-repeat,
+  linear-gradient(var(--ink), var(--ink)) 0 0 / calc(var(--px) * 2) calc(var(--px) * 2) no-repeat; }
+#frame .c1 { top: var(--frame); left: var(--frame); }
+#frame .c2 { top: var(--frame); right: var(--frame); transform: scaleX(-1); }
+#frame .c3 { bottom: var(--frame); left: var(--frame); transform: scaleY(-1); }
+#frame .c4 { bottom: var(--frame); right: var(--frame); transform: scale(-1, -1); }
+/* Inner pixel line that breathes with the voice. */
+#pulse { position: absolute; inset: var(--frame); pointer-events: none;
+  outline: var(--px) dotted rgba(245, 245, 240, calc(.18 + var(--level) * .82)); outline-offset: calc(var(--px) * -1); }
+
+body.on #frame { opacity: 1; animation: sink 220ms steps(4, end); }
+body.out #frame { opacity: 0; transition: opacity 160ms steps(3, end); }
+@keyframes sink { from { --frame: 0px; opacity: 0; } to { opacity: 1; } }
+@property --frame { syntax: "<length>"; inherits: true; initial-value: 12px; }
+
+/* Status chip, sitting in the bottom border. */
+#chip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); height: 24px; padding: 0 12px; display: flex; align-items: center; gap: 10px;
+  background: var(--ink); white-space: pre; opacity: 0; pointer-events: none; }
+body.on #chip { opacity: 1; }
+#dot { width: 6px; height: 6px; background: var(--paper); }
+body.rec #dot { animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+#meter { color: var(--paper); }
+#label { color: #a3a29c; text-transform: uppercase; }
+
+/* Side rail: invisible until the pointer reaches the right edge. */
+#rail { position: fixed; right: 0; top: 50%; width: var(--rail-w); height: var(--rail-h); transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: flex-end; pointer-events: auto; }
+#rail .grip { width: 4px; height: 48px; margin-right: 4px; background:
+  repeating-linear-gradient(var(--paper) 0 4px, transparent 4px 8px); opacity: .9; transition: opacity 120ms steps(2); }
+#rail .bar { position: absolute; right: 14px; display: flex; flex-direction: column; gap: 4px; padding: 4px; background: var(--ink);
+  transform: translateX(calc(100% + 20px)); transition: transform 140ms steps(4, end); }
+#rail:hover .bar, body.draw #rail .bar, body.board #rail .bar { transform: none; }
+#rail:hover .grip { opacity: 0; }
+#rail button { all: unset; width: 40px; height: 40px; display: grid; place-items: center; font: inherit; font-size: 15px; letter-spacing: 0; color: var(--paper); cursor: pointer; position: relative; }
+#rail button:hover, #rail button.on { background: var(--paper); color: var(--ink); }
+#rail button::after { content: attr(data-tip); position: absolute; right: 48px; padding: 6px 8px; background: var(--ink); color: var(--paper); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; opacity: 0; pointer-events: none; }
+#rail button:hover::after { opacity: 1; }
+body:not(.on) #rail, body.busy #rail { display: none; }
+
+/* Drawing on the screen and the whiteboard share one canvas. */
+#ink { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+body.draw #ink, body.board #ink { pointer-events: auto; cursor: crosshair; }
+body.board #ink { background-color: #0b0b0b; background-image: radial-gradient(#2a2a28 1px, transparent 1.5px); background-size: 24px 24px; }
+
+/* A click becomes a small pixel burst: the capture was taken. */
+.burst { position: fixed; width: 8px; height: 8px; margin: -4px 0 0 -4px; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--paper); background: var(--paper); animation: burst 360ms steps(4, end) forwards; }
+@keyframes burst { to { width: 44px; height: 44px; margin: -22px 0 0 -22px; background: transparent; opacity: 0; } }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div class="edge t"></div><div class="edge b"></div><div class="edge l"></div><div class="edge r"></div>
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div id="pulse"></div>
+</div>
+<canvas id="ink"></canvas>
+<div id="chip"><div id="dot"></div><span id="meter"></span><span id="label"></span></div>
+<div id="rail">
+  <div class="grip"></div>
+  <div class="bar">
+    <button id="b-draw" data-tip="dessiner sur l'écran">✎</button>
+    <button id="b-board" data-tip="tableau blanc">▦</button>
+    <button id="b-send" data-tip="envoyer le tunnel">↵</button>
+    <button id="b-cancel" data-tip="annuler">×</button>
+  </div>
+</div>
+<script>
+const T = window.__TAURI__;
+const invoke = (c, a) => T.core.invoke(c, a).catch(() => {});
+const $ = (id) => document.getElementById(id);
+const body = document.body;
+const BLOCKS = " ▁▂▃▄▅▆▇█";
+const SPIN = ["[■□□□□]", "[□■□□□]", "[□□■□□]", "[□□□■□]", "[□□□□■]", "[□□□■□]", "[□□■□□]", "[□■□□□]"];
+
+let mode = "live";
+let history = new Array(8).fill(0);
+let spinTimer = null;
+let hintUntil = 0;
+let state = "idle";
+
+const clock = (t) => { const s = Math.floor(t); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); };
+const setLabel = (text) => { $("label").textContent = text; };
+
+function reset() {
+  body.className = "";
+  mode = "live";
+  strokes = [];
+  clearInk();
+  clearInterval(spinTimer);
+  setLabel("");
+  $("meter").textContent = "";
+}
+
+T.event.listen("tunnel", ({ payload }) => {
+  state = payload.state;
+  if (state === "recording") {
+    reset();
+    void body.offsetWidth;
+    body.className = "on rec";
+    setLabel("00:00");
+  } else if (state === "processing") {
+    flushStrokes();
+    body.classList.remove("rec", "draw", "board");
+    body.classList.add("busy");
+    let i = 0;
+    clearInterval(spinTimer);
+    spinTimer = setInterval(() => { $("meter").textContent = SPIN[i++ % SPIN.length]; }, 90);
+    setLabel("transcription");
+  } else if (state === "done") {
+    clearInterval(spinTimer);
+    $("meter").textContent = "✓";
+    setLabel(`copié · ${payload.chars} car.`);
+    setTimeout(() => body.classList.add("out"), 160);
+  } else if (state === "cancelled") {
+    clearInterval(spinTimer);
+    $("meter").textContent = "×";
+    setLabel("annulé");
+    setTimeout(() => body.classList.add("out"), 120);
+  } else if (state === "error") {
+    clearInterval(spinTimer);
+    body.className = "on";
+    $("meter").textContent = "!";
+    setLabel(payload.message.slice(0, 90));
+  }
+});
+
+T.event.listen("level", ({ payload }) => {
+  const lv = Math.min(1, Math.sqrt(payload.level) * 3.2);
+  document.documentElement.style.setProperty("--level", lv.toFixed(3));
+  history.push(lv); history.shift();
+  $("meter").textContent = history.map((v) => BLOCKS[Math.min(8, Math.round(v * 8))]).join("");
+  if (performance.now() > hintUntil) {
+    const what = mode === "draw" ? "dessin · échap" : mode === "board" ? "tableau · échap" : "";
+    setLabel(clock(payload.t) + (what ? "  " + what : ""));
+  }
+});
+
+T.event.listen("hint", ({ payload }) => { setLabel(payload.text); hintUntil = performance.now() + 1500; });
+
+T.event.listen("click", ({ payload }) => {
+  const b = document.createElement("div");
+  b.className = "burst";
+  b.style.left = payload.x + "px";
+  b.style.top = payload.y + "px";
+  document.body.appendChild(b);
+  setTimeout(() => b.remove(), 400);
+});
+
+T.event.listen("mode", ({ payload }) => applyMode(payload.mode));
+
+/* ---- drawing ---- */
+const cv = $("ink");
+const ctx = cv.getContext("2d");
+let strokes = [];
+let current = null;
+
+function fit() {
+  const r = devicePixelRatio || 1;
+  cv.width = innerWidth * r; cv.height = innerHeight * r;
+  ctx.setTransform(r, 0, 0, r, 0, 0);
+  redraw();
+}
+addEventListener("resize", fit);
+
+function clearInk() { ctx.clearRect(0, 0, cv.width, cv.height); }
+
+function paint(s) {
+  for (const [w, c] of [[7, "#0a0a0a"], [3.5, "#f5f5f0"]]) {
+    ctx.lineWidth = w; ctx.strokeStyle = c; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath();
+    s.forEach(([x, y], i) => (i ? ctx.lineTo(x * innerWidth, y * innerHeight) : ctx.moveTo(x * innerWidth, y * innerHeight)));
+    if (s.length === 1) ctx.lineTo(s[0][0] * innerWidth + 0.1, s[0][1] * innerHeight);
+    ctx.stroke();
+  }
+}
+function redraw() { clearInk(); strokes.forEach(paint); if (current) paint(current); }
+
+cv.addEventListener("pointerdown", (e) => {
+  if (e.button === 2) { setMode("live"); return; }
+  cv.setPointerCapture(e.pointerId);
+  current = [[e.clientX / innerWidth, e.clientY / innerHeight]];
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!current) return;
+  current.push([e.clientX / innerWidth, e.clientY / innerHeight]);
+  redraw();
+});
+cv.addEventListener("pointerup", () => { if (current) { strokes.push(current); current = null; redraw(); } });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+
+/* Leaving a mode hands its drawing to the tunnel: screen strokes are burnt into a capture, the board is saved as an image. */
+function flushStrokes() {
+  if (!strokes.length) return;
+  if (mode === "board") invoke("board", { png: exportBoard() });
+  else invoke("stroke", { strokes });
+  strokes = [];
+  clearInk();
+}
+
+function exportBoard() {
+  const c = document.createElement("canvas");
+  c.width = cv.width; c.height = cv.height;
+  const g = c.getContext("2d");
+  g.fillStyle = "#0b0b0b"; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(cv, 0, 0);
+  return c.toDataURL("image/png");
+}
+
+function applyMode(next) {
+  if (next === mode) return;
+  flushStrokes();
+  mode = next;
+  body.classList.toggle("draw", mode === "draw");
+  body.classList.toggle("board", mode === "board");
+  $("b-draw").classList.toggle("on", mode === "draw");
+  $("b-board").classList.toggle("on", mode === "board");
+}
+function setMode(next) { applyMode(next); invoke("set_mode", { mode: next }); }
+
+$("b-draw").onclick = () => setMode(mode === "draw" ? "live" : "draw");
+$("b-board").onclick = () => setMode(mode === "board" ? "live" : "board");
+$("b-send").onclick = () => { setMode("live"); invoke("finish", { keep: true }); };
+$("b-cancel").onclick = () => invoke("finish", { keep: false });
+
+fit();
+</script>
+</body>
+</html>
