@@ -38,7 +38,7 @@ struct App {
     mode: AtomicU8,
     session: Mutex<Option<Session>>,
     pressed_at: Mutex<Option<(Instant, bool)>>,
-    escape_at: Mutex<Option<Instant>>,
+    flushed: AtomicBool,
     over_rail: AtomicBool,
 }
 
@@ -81,6 +81,7 @@ fn start(app: &AppHandle, st: &State) {
     if st.phase.compare_exchange(IDLE, RECORDING, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         return;
     }
+    let focus = platform::foreground();
     let Some(screen) = screen_under_cursor(app) else {
         st.phase.store(IDLE, Ordering::SeqCst);
         return;
@@ -93,14 +94,13 @@ fn start(app: &AppHandle, st: &State) {
     let _ = w.emit("tunnel", json!({ "state": "recording" }));
     let _ = w.show();
     let _ = w.set_always_on_top(true);
-    match Session::start(&Config::load(), screen) {
+    match Session::start(&Config::load(), screen, focus) {
         Ok(s) => *st.session.lock() = Some(s),
         Err(e) => {
             fail(app, st, &e);
             return;
         }
     }
-    let _ = app.global_shortcut().register(escape());
     spawn_ticker(app.clone(), st.clone(), screen);
     spawn_clicks(app.clone(), st.clone(), screen);
 }
@@ -120,12 +120,13 @@ fn end(app: &AppHandle, st: &State, keep: bool) {
     let w = overlay(app);
     let _ = w.set_ignore_cursor_events(true);
     let drawing = st.mode.swap(LIVE, Ordering::SeqCst) != LIVE;
+    st.flushed.store(!drawing, Ordering::SeqCst);
     let _ = w.emit("tunnel", json!({ "state": if keep { "processing" } else { "cancelled" } }));
     let (app, st) = (app.clone(), st.clone());
     std::thread::spawn(move || {
-        if drawing {
-            // The page hands over its unsent strokes when it sees "processing".
-            std::thread::sleep(Duration::from_millis(150));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !st.flushed.load(Ordering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
         }
         let Some(session) = st.session.lock().take() else {
             st.phase.store(IDLE, Ordering::SeqCst);
@@ -143,14 +144,13 @@ fn end(app: &AppHandle, st: &State, keep: bool) {
             Ok((text, _dir)) => {
                 let copied = arboard::Clipboard::new().and_then(|mut c| c.set_text(text.clone())).is_ok();
                 let _ = overlay(&app).emit("tunnel", json!({ "state": "done", "chars": text.chars().count() }));
-                st.phase.store(IDLE, Ordering::SeqCst);
                 std::thread::sleep(Duration::from_millis(380));
                 let _ = overlay(&app).hide();
-                if copied && cfg.auto_paste {
-                    platform::restore(focus);
+                if copied && cfg.auto_paste && platform::restore(focus) {
                     std::thread::sleep(Duration::from_millis(90));
                     platform::paste();
                 }
+                st.phase.store(IDLE, Ordering::SeqCst);
             }
             Err(e) => fail(&app, &st, &e),
         }
@@ -225,21 +225,8 @@ fn on_shortcut(app: &AppHandle, sc: &Shortcut, ev: ShortcutEvent) {
     let state = ev.state();
     let st = app.state::<State>().inner().clone();
     if *sc == escape() {
-        if state != ShortcutState::Pressed {
-            return;
-        }
-        if st.mode.load(Ordering::SeqCst) != LIVE {
+        if state == ShortcutState::Pressed {
             set_mode_inner(app, &st, LIVE);
-            return;
-        }
-        let mut at = st.escape_at.lock();
-        if at.map(|t| t.elapsed() < Duration::from_millis(1500)).unwrap_or(false) {
-            *at = None;
-            drop(at);
-            end(app, &st, false);
-        } else {
-            *at = Some(Instant::now());
-            let _ = overlay(app).emit("hint", json!({ "text": "échap encore pour annuler" }));
         }
         return;
     }
@@ -275,7 +262,8 @@ fn on_shortcut(app: &AppHandle, sc: &Shortcut, ev: ShortcutEvent) {
 fn set_mode_inner(app: &AppHandle, st: &State, mode: u8) {
     st.mode.store(mode, Ordering::SeqCst);
     let w = overlay(app);
-    let _ = w.set_ignore_cursor_events(mode == LIVE);
+    // Escape is only taken from other apps while drawing, to leave the drawing.
+    let _ = if mode == LIVE { app.global_shortcut().unregister(escape()) } else { app.global_shortcut().register(escape()) };
     let name = ["live", "draw", "board"][mode as usize];
     let _ = w.emit("mode", json!({ "mode": name }));
 }
@@ -308,6 +296,11 @@ fn board(st: tauri::State<State>, png: String) {
 }
 
 #[tauri::command]
+fn flushed(st: tauri::State<State>) {
+    st.flushed.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
 fn finish(app: AppHandle, st: tauri::State<State>, keep: bool) {
     end(&app, st.inner(), keep);
 }
@@ -319,13 +312,11 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(on_shortcut).build())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, finish])
+        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            let w = overlay(app.handle());
-            platform::no_activate(&w);
-            let _ = w.set_ignore_cursor_events(true);
+            let _ = overlay(app.handle()).set_ignore_cursor_events(true);
             if let Err(e) = app.global_shortcut().register(hotkey()) {
                 eprintln!("raccourci indisponible : {e}");
             }

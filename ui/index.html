@@ -130,6 +130,7 @@ T.event.listen("tunnel", ({ payload }) => {
     setLabel("00:00");
   } else if (state === "processing") {
     flushStrokes();
+    invoke("flushed");
     body.classList.remove("rec", "draw", "board");
     body.classList.add("busy");
     let i = 0;
@@ -142,6 +143,9 @@ T.event.listen("tunnel", ({ payload }) => {
     setLabel(`copié · ${payload.chars} car.`);
     setTimeout(() => body.classList.add("out"), 160);
   } else if (state === "cancelled") {
+    strokes = [];
+    clearInk();
+    invoke("flushed");
     clearInterval(spinTimer);
     $("meter").textContent = "×";
     setLabel("annulé");
@@ -155,6 +159,7 @@ T.event.listen("tunnel", ({ payload }) => {
 });
 
 T.event.listen("level", ({ payload }) => {
+  if (state !== "recording") return;
   const lv = Math.min(1, Math.sqrt(payload.level) * 3.2);
   document.documentElement.style.setProperty("--level", lv.toFixed(3));
   history.push(lv); history.shift();

@@ -22,10 +22,13 @@ struct RawSeg {
     no_speech_prob: f64,
     #[serde(default)]
     avg_logprob: f64,
+    #[serde(default)]
+    compression_ratio: f64,
 }
 
-/// Whisper's known filler hallucinations on near-silence.
-const HALLUCINATIONS: &[&str] = &["amara.org", "sous-titres réalisés", "sous-titrage", "merci d'avoir regardé", "thanks for watching"];
+/// Whisper's filler hallucinations on noise: found anywhere, or as the whole segment.
+const HALLUCINATIONS: &[&str] = &["amara.org", "sous-titres réalisés par", "sous-titrage st'", "merci d'avoir regardé"];
+const WHOLE: &[&str] = &["merci", "merci.", "merci !", "thank you.", "thanks for watching!", "...", "."];
 
 pub struct Job {
     pub key: String,
@@ -70,7 +73,7 @@ pub fn transcribe(job: &Job, wav: Vec<u8>, offset: f64) -> Result<Vec<Segment>, 
         match res {
             Ok(r) if r.status().is_success() => {
                 let v: Verbose = r.json().map_err(|e| e.to_string())?;
-                return Ok(clean(v, offset));
+                return Ok(clean(v, offset, &job.prompt));
             }
             Ok(r) => {
                 let code = r.status();
@@ -85,17 +88,20 @@ pub fn transcribe(job: &Job, wav: Vec<u8>, offset: f64) -> Result<Vec<Segment>, 
     Err(last)
 }
 
-fn clean(v: Verbose, offset: f64) -> Vec<Segment> {
+fn clean(v: Verbose, offset: f64, prompt: &str) -> Vec<Segment> {
+    let prompt = prompt.trim().to_lowercase();
     if v.segments.is_empty() {
         let t = v.text.trim();
         return if t.is_empty() { vec![] } else { vec![Segment { start: offset, text: t.into() }] };
     }
     v.segments
         .into_iter()
-        .filter(|s| !(s.no_speech_prob > 0.6 && s.avg_logprob < -0.7))
+        .filter(|s| !(s.no_speech_prob > 0.6 && s.avg_logprob < -0.7) && s.compression_ratio < 2.4)
         .filter(|s| {
-            let l = s.text.to_lowercase();
+            let l = s.text.trim().to_lowercase();
             !HALLUCINATIONS.iter().any(|h| l.contains(h))
+                && !WHOLE.contains(&l.as_str())
+                && !(l.starts_with("vocabulaire :") || (!prompt.is_empty() && prompt.contains(&l)))
         })
         .map(|s| Segment { start: s.start + offset, text: s.text.trim().to_string() })
         .filter(|s| !s.text.is_empty())

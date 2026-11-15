@@ -44,8 +44,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn start(cfg: &Config, screen: Screen) -> Result<Self, String> {
-        let focus = platform::foreground();
+    pub fn start(cfg: &Config, screen: Screen, focus: Focus) -> Result<Self, String> {
         let rec = Recorder::start()?;
         let started = Local::now();
         let dir = cfg.tunnels_dir().join(started.format("%Y-%m-%d_%H-%M-%S").to_string());

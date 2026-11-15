@@ -7,27 +7,22 @@ pub struct Focus(pub isize);
 #[cfg(windows)]
 mod imp {
     use super::Focus;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowLongPtrW, SetForegroundWindow, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
 
     pub fn foreground() -> Focus {
         Focus(unsafe { GetForegroundWindow() } as isize)
     }
 
-    pub fn restore(f: Focus) {
-        if f.0 != 0 {
-            unsafe { SetForegroundWindow(f.0 as _) };
+    /// Gives focus back to `f`; false when Windows refuses, so we never paste into the wrong window.
+    pub fn restore(f: Focus) -> bool {
+        if f.0 == 0 {
+            return false;
         }
-    }
-
-    pub fn no_activate(w: &tauri::WebviewWindow) {
-        if let Ok(h) = w.hwnd() {
-            let h = h.0 as _;
-            unsafe {
-                let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
-                SetWindowLongPtrW(h, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE as isize);
+        unsafe {
+            if GetForegroundWindow() as isize != f.0 {
+                SetForegroundWindow(f.0 as _);
             }
+            GetForegroundWindow() as isize == f.0
         }
     }
 
@@ -77,8 +72,10 @@ mod imp {
     pub fn foreground() -> Focus {
         Focus(0)
     }
-    pub fn restore(_: Focus) {}
-    pub fn no_activate(_: &tauri::WebviewWindow) {}
+    /// The OS hands focus back to the previous app when the overlay hides.
+    pub fn restore(_: Focus) -> bool {
+        true
+    }
     pub fn element_at(_: i32, _: i32) -> Option<String> {
         None
     }

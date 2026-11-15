@@ -19,6 +19,7 @@
         "resizable": false,
         "visible": false,
         "focus": false,
+        "focusable": false,
         "shadow": false,
         "contentProtected": true,
         "width": 800,

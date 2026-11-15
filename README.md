@@ -25,7 +25,7 @@ L'app est écrite en Rust (Tauri 2) et tourne sur Windows et macOS. Elle n'a auc
 | maintenir `Ctrl+Espace` | push-to-talk : relâcher envoie |
 | clic n'importe où | capture de l'écran, point du clic marqué, élément pointé nommé |
 | bord droit de l'écran | rail : `✎` dessiner · `▦` tableau blanc · `↵` envoyer · `×` annuler |
-| `Échap` | quitte le dessin ou le tableau ; deux fois de suite, annule le tunnel |
+| `Échap` | quitte le dessin ou le tableau (hors dessin, Échap reste aux autres apps) |
 | clic droit en dessin | revient au direct |
 
 À l'envoi, le tunnel est copié dans le presse-papiers et collé dans la fenêtre active. Chaque tunnel

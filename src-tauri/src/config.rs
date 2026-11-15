@@ -32,17 +32,20 @@ pub fn config_path() -> PathBuf {
 impl Config {
     pub fn load() -> Self {
         let path = config_path();
-        let mut cfg: Config = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_else(|| {
+        let mut cfg = match std::fs::read_to_string(&path) {
+            Ok(s) => serde_json::from_str(s.trim_start_matches('\u{feff}')).unwrap_or_else(|e| {
+                eprintln!("config.json illisible, valeurs par défaut utilisées : {e}");
+                Config::default()
+            }),
+            Err(_) => {
                 let cfg = Config::default();
                 if let Some(dir) = path.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
                 let _ = std::fs::write(&path, serde_json::to_string_pretty(&cfg).unwrap_or_default());
                 cfg
-            });
+            }
+        };
         if cfg.groq_api_key.trim().is_empty() {
             if let Ok(k) = std::env::var("GROQ_API_KEY") {
                 cfg.groq_api_key = k;
@@ -63,7 +66,11 @@ impl Config {
         }
         let mut p = format!("Vocabulaire : {}.", self.vocabulary.join(", "));
         if p.len() > 700 {
-            let cut = p[..700].rfind(',').unwrap_or(700);
+            let mut end = 700;
+            while !p.is_char_boundary(end) {
+                end -= 1;
+            }
+            let cut = p[..end].rfind(',').unwrap_or(end);
             p.truncate(cut);
             p.push('.');
         }

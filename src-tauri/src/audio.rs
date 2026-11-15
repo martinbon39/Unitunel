@@ -74,12 +74,16 @@ impl Resampler {
         self.acc += s;
         self.n += 1;
         self.pos += self.step;
-        if self.pos >= 1.0 {
-            self.pos -= 1.0;
-            out.push(self.acc / self.n as f32);
-            self.acc = 0.0;
-            self.n = 0;
+        if self.pos < 1.0 {
+            return;
         }
+        let v = self.acc / self.n as f32;
+        while self.pos >= 1.0 {
+            self.pos -= 1.0;
+            out.push(v);
+        }
+        self.acc = 0.0;
+        self.n = 0;
     }
 }
 
