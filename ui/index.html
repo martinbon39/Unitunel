@@ -253,12 +253,13 @@ function redraw() { clearInk(); strokes.forEach(paint); if (current) paint(curre
 
 cv.addEventListener("pointerdown", (e) => {
   if (e.button === 2) { setMode("live"); return; }
-  cv.setPointerCapture(e.pointerId);
+  try { cv.setPointerCapture(e.pointerId); } catch {}
   current = [[e.clientX / innerWidth, e.clientY / innerHeight]];
 });
 cv.addEventListener("pointermove", (e) => {
   if (!current) return;
-  for (const ev of e.getCoalescedEvents ? e.getCoalescedEvents() : [e]) current.push([ev.clientX / innerWidth, ev.clientY / innerHeight]);
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  for (const ev of evs.length ? evs : [e]) current.push([ev.clientX / innerWidth, ev.clientY / innerHeight]);
   redraw();
 });
 cv.addEventListener("pointerup", () => { if (current) { strokes.push(current); current = null; redraw(); } });
