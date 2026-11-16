@@ -5,93 +5,131 @@
 <title>Unitunel</title>
 <style>
 @font-face { font-family: "Mono"; src: url("fonts/GeistMono-Regular.woff2") format("woff2"); }
+@property --angle { syntax: "<angle>"; inherits: true; initial-value: 0deg; }
 :root {
-  --ink: #0a0a0a;
-  --paper: #f5f5f0;
-  --px: 4px;
-  --frame: 12px;
+  --level: 0;
   --rail-w: 64px;
   --rail-h: 260px;
-  --level: 0;
+  --c1: #bc82f3; --c2: #f5b9ea; --c3: #8d9fff; --c4: #ff6778; --c5: #ffba71; --c6: #c686ff;
+  --spectrum: conic-gradient(from var(--angle), var(--c1), var(--c2), var(--c3), var(--c4), var(--c5), var(--c6), var(--c3), var(--c1));
+  --glass: rgba(16, 16, 20, .78);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --spring: cubic-bezier(.34, 1.36, .5, 1);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none; font: 11px/1 "Mono", ui-monospace, monospace; letter-spacing: .08em; color: var(--paper); }
+html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none;
+  font: 500 12px/1 system-ui, "Segoe UI Variable Text", "SF Pro Text", sans-serif; color: #f5f5f7; }
 
-/* The frame: the screen seems to sink into a black pixel border while you speak. */
-#frame { position: fixed; inset: 0; pointer-events: none; opacity: 0; }
-#frame .edge { position: absolute; background: var(--ink); }
-#frame .t { top: 0; left: 0; right: 0; height: var(--frame); }
-#frame .b { bottom: 0; left: 0; right: 0; height: var(--frame); }
-#frame .l { top: 0; bottom: 0; left: 0; width: var(--frame); }
-#frame .r { top: 0; bottom: 0; right: 0; width: var(--frame); }
-#frame .corner { position: absolute; width: calc(var(--px) * 3); height: calc(var(--px) * 3); background:
-  linear-gradient(var(--ink), var(--ink)) 0 0 / 100% var(--px) no-repeat,
-  linear-gradient(var(--ink), var(--ink)) 0 0 / var(--px) 100% no-repeat,
-  linear-gradient(var(--ink), var(--ink)) 0 0 / calc(var(--px) * 2) calc(var(--px) * 2) no-repeat; }
-#frame .c1 { top: var(--frame); left: var(--frame); }
-#frame .c2 { top: var(--frame); right: var(--frame); transform: scaleX(-1); }
-#frame .c3 { bottom: var(--frame); left: var(--frame); transform: scaleY(-1); }
-#frame .c4 { bottom: var(--frame); right: var(--frame); transform: scale(-1, -1); }
-/* Inner pixel line that breathes with the voice. */
-#pulse { position: absolute; inset: var(--frame); pointer-events: none;
-  outline: var(--px) dotted rgba(245, 245, 240, calc(.18 + var(--level) * .82)); outline-offset: calc(var(--px) * -1); }
+/* ---- Aura: a rotating spectrum, masked to the screen edge, stacked in layers of growing blur. ---- */
+#aura { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: 0; }
+.layer { position: absolute; inset: 0; }
+.band { position: absolute; inset: 0; padding: var(--w);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.band::before { content: ""; position: absolute; inset: 0; background: var(--spectrum); }
+.l1 .band { --w: 2px; }
+.l2 { filter: blur(6px); }
+.l2 .band { --w: calc(6px + var(--level) * 6px); }
+.l3 { filter: blur(18px); opacity: calc(.5 + var(--level) * .5); }
+.l3 .band { --w: calc(8px + var(--level) * 36px); }
+.l4 { filter: blur(60px); opacity: 0; }
+.l4 .band { --w: 140px; }
+#aura { animation: turn 7s linear infinite; }
+@keyframes turn { to { --angle: 360deg; } }
 
-body.on #frame { opacity: 1; animation: sink 220ms steps(4, end); }
-body.out #frame { opacity: 0; transition: opacity 160ms steps(3, end); }
-@keyframes sink { from { --frame: 0px; opacity: 0; } to { opacity: 1; } }
-@property --frame { syntax: "<length>"; inherits: true; initial-value: 12px; }
+body.on #aura { opacity: 1; transition: opacity 260ms var(--ease-out); }
+body.on #aura .l4 { animation: bloom 1100ms var(--ease-out); }
+body.on #aura .l3 .band { animation: swell 900ms var(--ease-out); }
+@keyframes bloom { 0% { opacity: 0; } 18% { opacity: .95; } 100% { opacity: 0; } }
+@keyframes swell { 0% { --w: 0px; } 35% { --w: 90px; } }
+@property --w { syntax: "<length>"; inherits: false; initial-value: 0px; }
 
-/* Status chip, sitting in the bottom border. */
-#chip { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); height: 24px; padding: 0 12px; display: flex; align-items: center; gap: 10px;
-  background: var(--ink); white-space: pre; opacity: 0; pointer-events: none; }
-body.on #chip { opacity: 1; }
-#dot { width: 6px; height: 6px; background: var(--paper); }
-body.rec #dot { animation: blink 1s steps(1) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
-#meter { color: var(--paper); }
-#label { color: #a3a29c; text-transform: uppercase; }
+body.busy #aura { animation-duration: 1.4s; }
+body.busy #aura .l3 { opacity: .9; animation: breathe 1.2s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .45; } }
+body.send #aura .l4 { animation: bloom 700ms var(--ease-out); }
+body.out #aura { opacity: 0; transition: opacity 420ms ease; }
 
-/* Side rail: invisible until the pointer reaches the right edge. */
-#rail { position: fixed; right: 0; top: 50%; width: var(--rail-w); height: var(--rail-h); transform: translateY(-50%);
+/* ---- Status pill ---- */
+#chip { position: fixed; left: 50%; bottom: 22px; z-index: 4; height: 32px; padding: 0 14px 0 12px; display: flex; align-items: center; gap: 10px;
+  border-radius: 999px; background: var(--glass); box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset, 0 10px 30px rgba(0,0,0,.35);
+  transform: translate(-50%, 70px) scale(.9); opacity: 0; pointer-events: none; white-space: pre;
+  transition: transform 520ms var(--spring), opacity 200ms ease; }
+body.on #chip { transform: translate(-50%, 0) scale(1); opacity: 1; }
+body.out #chip { transform: translate(-50%, 20px) scale(.96); opacity: 0; transition-duration: 300ms; }
+#bars { display: flex; align-items: center; gap: 2px; height: 16px; }
+#bars i { width: 3px; border-radius: 2px; height: 3px; background: linear-gradient(var(--c3), var(--c1), var(--c4)); background-size: 100% 16px; transition: height 90ms ease; }
+#label { font: 400 11px/1 "Mono", ui-monospace, monospace; letter-spacing: .04em; color: rgba(245,245,247,.72); }
+#spinner { display: none; width: 14px; height: 14px; border-radius: 50%; background: var(--spectrum);
+  -webkit-mask: radial-gradient(circle, transparent 4.5px, #000 5px); mask: radial-gradient(circle, transparent 4.5px, #000 5px); }
+body.busy #bars { display: none; }
+body.busy #spinner { display: block; }
+
+/* ---- Rail ---- */
+#rail { position: fixed; right: 0; top: 50%; width: var(--rail-w); height: var(--rail-h); transform: translateY(-50%); z-index: 4;
   display: flex; align-items: center; justify-content: flex-end; pointer-events: auto; }
-#rail .grip { width: 4px; height: 48px; margin-right: 4px; background:
-  repeating-linear-gradient(var(--paper) 0 4px, transparent 4px 8px); opacity: .9; transition: opacity 120ms steps(2); }
-#rail .bar { position: absolute; right: 14px; display: flex; flex-direction: column; gap: 4px; padding: 4px; background: var(--ink);
-  transform: translateX(calc(100% + 20px)); transition: transform 140ms steps(4, end); }
-#rail:hover .bar, body.draw #rail .bar, body.board #rail .bar { transform: none; }
-#rail:hover .grip { opacity: 0; }
-#rail button { all: unset; width: 40px; height: 40px; display: grid; place-items: center; font: inherit; font-size: 15px; letter-spacing: 0; color: var(--paper); cursor: pointer; position: relative; }
-#rail button:hover, #rail button.on { background: var(--paper); color: var(--ink); }
-#rail button::after { content: attr(data-tip); position: absolute; right: 48px; padding: 6px 8px; background: var(--ink); color: var(--paper); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; opacity: 0; pointer-events: none; }
-#rail button:hover::after { opacity: 1; }
+#rail .grip { width: 4px; height: 44px; margin-right: 6px; border-radius: 4px; background: rgba(255,255,255,.75);
+  box-shadow: 0 0 12px var(--c1); transition: opacity 160ms ease, transform 300ms var(--spring); }
+#rail .bar { position: absolute; right: 14px; display: flex; flex-direction: column; gap: 4px; padding: 5px; border-radius: 22px;
+  background: var(--glass); box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset, 0 12px 40px rgba(0,0,0,.4);
+  transform: translateX(calc(100% + 24px)) scale(.92); opacity: 0; transition: transform 420ms var(--spring), opacity 160ms ease; }
+#rail:hover .bar, body.draw #rail .bar, body.board #rail .bar { transform: none; opacity: 1; }
+#rail:hover .grip { opacity: 0; transform: scaleY(.4); }
+#rail button { all: unset; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 16px; color: #f5f5f7; cursor: pointer; position: relative;
+  transition: background 140ms ease, transform 200ms var(--spring); }
+#rail button:hover { background: rgba(255,255,255,.12); }
+#rail button:active { transform: scale(.9); }
+#rail button.on { background: #f5f5f7; color: #111; }
+#rail button::after { content: attr(data-tip); position: absolute; right: 52px; padding: 7px 10px; border-radius: 10px; background: var(--glass); font-size: 11px; white-space: nowrap;
+  opacity: 0; transform: translateX(6px); transition: opacity 120ms ease, transform 200ms var(--ease-out); pointer-events: none; }
+#rail button:hover::after { opacity: 1; transform: none; }
 body:not(.on) #rail, body.busy #rail { display: none; }
 
-/* Drawing on the screen and the whiteboard share one canvas. */
-#ink { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-body.draw #ink, body.board #ink { pointer-events: auto; cursor: crosshair; }
-body.board #ink { background-color: #0b0b0b; background-image: radial-gradient(#2a2a28 1px, transparent 1.5px); background-size: 24px 24px; }
+/* ---- Whiteboard: opens out of the rail button like a lens, closes back into it. ---- */
+#board { position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 40%, #17161d 0%, #0b0b0e 70%);
+  clip-path: circle(0px at var(--ox, 100%) var(--oy, 50%)); transition: clip-path 380ms cubic-bezier(.4, 0, .9, .4); }
+#board::after { content: ""; position: absolute; inset: 0; opacity: .5;
+  background-image: radial-gradient(rgba(255,255,255,.09) 1px, transparent 1.4px); background-size: 26px 26px; }
+body.board #board { clip-path: circle(150vmax at var(--ox, 100%) var(--oy, 50%)); transition: clip-path 720ms var(--ease-out); }
+#board .title { position: absolute; left: 50%; top: 34px; transform: translate(-50%, -10px); opacity: 0; font: 400 11px "Mono", monospace; letter-spacing: .14em;
+  text-transform: uppercase; color: rgba(245,245,247,.38); transition: opacity 300ms ease 260ms, transform 500ms var(--ease-out) 260ms; }
+body.board #board .title { opacity: 1; transform: translate(-50%, 0); }
 
-/* A click becomes a small pixel burst: the capture was taken. */
-.burst { position: fixed; width: 8px; height: 8px; margin: -4px 0 0 -4px; pointer-events: none;
-  box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--paper); background: var(--paper); animation: burst 360ms steps(4, end) forwards; }
-@keyframes burst { to { width: 44px; height: 44px; margin: -22px 0 0 -22px; background: transparent; opacity: 0; } }
+/* ---- Drawing ---- */
+#ink { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+body.draw #ink, body.board #ink { pointer-events: auto; cursor: crosshair; }
+body.draw #aura .l3 { opacity: .35; }
+
+/* A click: a small aura ripple where the capture was marked. */
+.ripple { position: fixed; z-index: 4; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.95), 0 0 18px 4px var(--c1), 0 0 34px 10px rgba(141,159,255,.55);
+  animation: ripple 620ms var(--ease-out) forwards; }
+@keyframes ripple { from { transform: scale(.4); opacity: 1; } to { transform: scale(3.2); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  #aura { animation: none; }
+  body.on #aura .l4, body.on #aura .l3 .band { animation: none; }
+}
 </style>
 </head>
 <body>
-<div id="frame">
-  <div class="edge t"></div><div class="edge b"></div><div class="edge l"></div><div class="edge r"></div>
-  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
-  <div id="pulse"></div>
-</div>
+<div id="board"><div class="title">tableau</div></div>
 <canvas id="ink"></canvas>
-<div id="chip"><div id="dot"></div><span id="meter"></span><span id="label"></span></div>
+<div id="aura">
+  <div class="layer l4"><div class="band"></div></div>
+  <div class="layer l3"><div class="band"></div></div>
+  <div class="layer l2"><div class="band"></div></div>
+  <div class="layer l1"><div class="band"></div></div>
+</div>
+<div id="chip"><div id="bars"></div><div id="spinner"></div><span id="label"></span></div>
 <div id="rail">
   <div class="grip"></div>
   <div class="bar">
-    <button id="b-draw" data-tip="dessiner sur l'écran">✎</button>
-    <button id="b-board" data-tip="tableau blanc">▦</button>
-    <button id="b-send" data-tip="envoyer le tunnel">↵</button>
-    <button id="b-cancel" data-tip="annuler">×</button>
+    <button id="b-draw" data-tip="Dessiner sur l'écran">✎</button>
+    <button id="b-board" data-tip="Tableau blanc">◫</button>
+    <button id="b-send" data-tip="Envoyer">↑</button>
+    <button id="b-cancel" data-tip="Annuler">✕</button>
   </div>
 </div>
 <script>
@@ -99,14 +137,15 @@ const T = window.__TAURI__;
 const invoke = (c, a) => T.core.invoke(c, a).catch(() => {});
 const $ = (id) => document.getElementById(id);
 const body = document.body;
-const BLOCKS = " ▁▂▃▄▅▆▇█";
-const SPIN = ["[■□□□□]", "[□■□□□]", "[□□■□□]", "[□□□■□]", "[□□□□■]", "[□□□■□]", "[□□■□□]", "[□■□□□]"];
+const root = document.documentElement;
+
+const NBARS = 5;
+for (let i = 0; i < NBARS; i++) $("bars").appendChild(document.createElement("i"));
+const bars = [...$("bars").children];
 
 let mode = "live";
-let history = new Array(8).fill(0);
-let spinTimer = null;
-let hintUntil = 0;
 let state = "idle";
+let level = 0;
 
 const clock = (t) => { const s = Math.floor(t); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); };
 const setLabel = (text) => { $("label").textContent = text; };
@@ -116,9 +155,9 @@ function reset() {
   mode = "live";
   strokes = [];
   clearInk();
-  clearInterval(spinTimer);
   setLabel("");
-  $("meter").textContent = "";
+  level = 0;
+  root.style.setProperty("--level", 0);
 }
 
 T.event.listen("tunnel", ({ payload }) => {
@@ -126,59 +165,56 @@ T.event.listen("tunnel", ({ payload }) => {
   if (state === "recording") {
     reset();
     void body.offsetWidth;
-    body.className = "on rec";
+    body.className = "on";
     setLabel("00:00");
   } else if (state === "processing") {
     flushStrokes();
     invoke("flushed");
-    body.classList.remove("rec", "draw", "board");
+    applyMode("live");
     body.classList.add("busy");
-    let i = 0;
-    clearInterval(spinTimer);
-    spinTimer = setInterval(() => { $("meter").textContent = SPIN[i++ % SPIN.length]; }, 90);
     setLabel("transcription");
   } else if (state === "done") {
-    clearInterval(spinTimer);
-    $("meter").textContent = "✓";
-    setLabel(`copié · ${payload.chars} car.`);
-    setTimeout(() => body.classList.add("out"), 160);
+    body.classList.remove("busy");
+    body.classList.add("send");
+    setLabel(`collé · ${payload.chars} car.`);
+    setTimeout(() => body.classList.add("out"), 220);
   } else if (state === "cancelled") {
     strokes = [];
     clearInk();
     invoke("flushed");
-    clearInterval(spinTimer);
-    $("meter").textContent = "×";
+    applyMode("live");
     setLabel("annulé");
-    setTimeout(() => body.classList.add("out"), 120);
+    body.classList.add("out");
   } else if (state === "error") {
-    clearInterval(spinTimer);
     body.className = "on";
-    $("meter").textContent = "!";
     setLabel(payload.message.slice(0, 90));
+    setTimeout(() => body.classList.add("out"), 2800);
   }
 });
 
 T.event.listen("level", ({ payload }) => {
   if (state !== "recording") return;
-  const lv = Math.min(1, Math.sqrt(payload.level) * 3.2);
-  document.documentElement.style.setProperty("--level", lv.toFixed(3));
-  history.push(lv); history.shift();
-  $("meter").textContent = history.map((v) => BLOCKS[Math.min(8, Math.round(v * 8))]).join("");
-  if (performance.now() > hintUntil) {
-    const what = mode === "draw" ? "dessin · échap" : mode === "board" ? "tableau · échap" : "";
-    setLabel(clock(payload.t) + (what ? "  " + what : ""));
-  }
+  const target = Math.min(1, Math.sqrt(payload.level) * 3.2);
+  level += (target - level) * (target > level ? 0.55 : 0.18);
+  root.style.setProperty("--level", level.toFixed(3));
+  const now = performance.now() / 140;
+  bars.forEach((b, i) => {
+    const wobble = 0.55 + 0.45 * Math.sin(now + i * 1.7);
+    b.style.height = (3 + level * 13 * wobble) + "px";
+  });
+  const what = mode === "draw" ? "  ·  dessin" : mode === "board" ? "  ·  tableau" : "";
+  setLabel(clock(payload.t) + what);
 });
 
-T.event.listen("hint", ({ payload }) => { setLabel(payload.text); hintUntil = performance.now() + 1500; });
+T.event.listen("hint", ({ payload }) => setLabel(payload.text));
 
 T.event.listen("click", ({ payload }) => {
-  const b = document.createElement("div");
-  b.className = "burst";
-  b.style.left = payload.x + "px";
-  b.style.top = payload.y + "px";
-  document.body.appendChild(b);
-  setTimeout(() => b.remove(), 400);
+  const r = document.createElement("div");
+  r.className = "ripple";
+  r.style.left = payload.x + "px";
+  r.style.top = payload.y + "px";
+  document.body.appendChild(r);
+  setTimeout(() => r.remove(), 700);
 });
 
 T.event.listen("mode", ({ payload }) => applyMode(payload.mode));
@@ -197,16 +233,21 @@ function fit() {
 }
 addEventListener("resize", fit);
 
-function clearInk() { ctx.clearRect(0, 0, cv.width, cv.height); }
+function clearInk() { ctx.clearRect(0, 0, innerWidth, innerHeight); }
 
 function paint(s) {
-  for (const [w, c] of [[7, "#0a0a0a"], [3.5, "#f5f5f0"]]) {
-    ctx.lineWidth = w; ctx.strokeStyle = c; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  const pts = s.map(([x, y]) => [x * innerWidth, y * innerHeight]);
+  const path = () => {
     ctx.beginPath();
-    s.forEach(([x, y], i) => (i ? ctx.lineTo(x * innerWidth, y * innerHeight) : ctx.moveTo(x * innerWidth, y * innerHeight)));
-    if (s.length === 1) ctx.lineTo(s[0][0] * innerWidth + 0.1, s[0][1] * innerHeight);
-    ctx.stroke();
-  }
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    if (pts.length === 1) ctx.lineTo(pts[0][0] + 0.1, pts[0][1]);
+  };
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.save();
+  ctx.shadowColor = "rgba(188,130,243,.85)"; ctx.shadowBlur = 16;
+  ctx.lineWidth = 6; ctx.strokeStyle = "rgba(10,10,12,.55)"; path(); ctx.stroke();
+  ctx.restore();
+  ctx.lineWidth = 3.5; ctx.strokeStyle = "#f5f5f7"; path(); ctx.stroke();
 }
 function redraw() { clearInk(); strokes.forEach(paint); if (current) paint(current); }
 
@@ -217,7 +258,7 @@ cv.addEventListener("pointerdown", (e) => {
 });
 cv.addEventListener("pointermove", (e) => {
   if (!current) return;
-  current.push([e.clientX / innerWidth, e.clientY / innerHeight]);
+  for (const ev of e.getCoalescedEvents ? e.getCoalescedEvents() : [e]) current.push([ev.clientX / innerWidth, ev.clientY / innerHeight]);
   redraw();
 });
 cv.addEventListener("pointerup", () => { if (current) { strokes.push(current); current = null; redraw(); } });
@@ -236,14 +277,23 @@ function exportBoard() {
   const c = document.createElement("canvas");
   c.width = cv.width; c.height = cv.height;
   const g = c.getContext("2d");
-  g.fillStyle = "#0b0b0b"; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = "#0e0e12"; g.fillRect(0, 0, c.width, c.height);
   g.drawImage(cv, 0, 0);
   return c.toDataURL("image/png");
+}
+
+function originFromButton() {
+  const r = $("b-board").getBoundingClientRect();
+  const x = r.width ? r.left + r.width / 2 : innerWidth - 34;
+  const y = r.height ? r.top + r.height / 2 : innerHeight / 2;
+  root.style.setProperty("--ox", x + "px");
+  root.style.setProperty("--oy", y + "px");
 }
 
 function applyMode(next) {
   if (next === mode) return;
   flushStrokes();
+  if (next === "board" || mode === "board") originFromButton();
   mode = next;
   body.classList.toggle("draw", mode === "draw");
   body.classList.toggle("board", mode === "board");
