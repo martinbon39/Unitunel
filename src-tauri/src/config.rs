@@ -10,6 +10,7 @@ pub struct Config {
     pub vocabulary: Vec<String>,
     pub auto_paste: bool,
     pub output_dir: Option<PathBuf>,
+    pub shortcut: String,
 }
 
 impl Default for Config {
@@ -21,8 +22,30 @@ impl Default for Config {
             vocabulary: vec!["Unitunel".into(), "Claude Code".into()],
             auto_paste: true,
             output_dir: None,
+            shortcut: DEFAULT_SHORTCUT.into(),
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+pub const DEFAULT_SHORTCUT: &str = "Alt+Space";
+#[cfg(not(target_os = "macos"))]
+pub const DEFAULT_SHORTCUT: &str = "Control+Space";
+
+/// Writes only the `shortcut` key, so the rest of the file (and a key taken from GROQ_API_KEY) stays as it is.
+pub fn save_shortcut(accel: &str) -> Result<(), String> {
+    let path = config_path();
+    let mut v: serde_json::Value = match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(s.trim_start_matches('\u{feff}'))
+            .map_err(|e| format!("config.json contient une erreur, corrige-le d'abord ({e})"))?,
+        Err(_) => serde_json::to_value(Config::default()).map_err(|e| e.to_string())?,
+    };
+    let obj = v.as_object_mut().ok_or("config.json n'est pas un objet")?;
+    obj.insert("shortcut".into(), accel.into());
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap_or_default()).map_err(|e| e.to_string())
 }
 
 pub fn config_path() -> PathBuf {

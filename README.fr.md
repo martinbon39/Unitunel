@@ -73,6 +73,7 @@ flowchart LR
 | maintenir `Ctrl+Espace` | push-to-talk : relâcher envoie |
 | clic n'importe où | capture de l'écran, point du clic marqué, élément pointé nommé |
 | bord droit de l'écran | rail : `✎` dessiner · `▦` tableau blanc · `↵` envoyer · `×` annuler |
+| menu de l'icône › Raccourci | changer la combinaison : appuie sur celle que tu veux, puis Enregistrer |
 | `Échap` | quitte le dessin ou le tableau (hors dessin, Échap reste aux autres apps) |
 | clic droit en dessin | revient au direct |
 
@@ -113,6 +114,7 @@ Il te faut une [clé API Groq](https://console.groq.com/keys) gratuite. Au premi
 | `vocabulary` | noms propres à bien orthographier |
 | `auto_paste` | coller le tunnel dans la fenêtre active, ou seulement le copier |
 | `output_dir` | où ranger les tunnels (par défaut `Documents/Unitunel`) |
+| `shortcut` | le raccourci (`Control+Space`, `Alt+Space`…), plus simple à changer depuis le menu de l'icône |
 
 Emplacement : `%APPDATA%\unitunel\config.json` sur Windows, `~/Library/Application Support/unitunel/config.json` sur macOS.
 

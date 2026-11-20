@@ -73,6 +73,7 @@ flowchart LR
 | hold `Ctrl+Space` | push-to-talk: release to send |
 | click anywhere | screenshot, click point marked, element under the pointer named |
 | right edge of the screen | rail: `✎` draw · `▦` whiteboard · `↵` send · `×` cancel |
+| tray icon menu › Raccourci | change the key combination: press the one you want, then Enregistrer |
 | `Esc` | leave drawing or the whiteboard (outside drawing, Esc goes to your other apps) |
 | right-click while drawing | back to live mode |
 
@@ -113,6 +114,7 @@ You need a free [Groq API key](https://console.groq.com/keys). On first launch U
 | `vocabulary` | proper nouns Whisper should spell right |
 | `auto_paste` | paste the tunnel into the active window, or only copy it |
 | `output_dir` | where tunnels are saved (default `Documents/Unitunel`) |
+| `shortcut` | the key combination (`Control+Space`, `Alt+Space`…), easier to change from the tray menu |
 
 Location: `%APPDATA%\unitunel\config.json` on Windows, `~/Library/Application Support/unitunel/config.json` on macOS.
 

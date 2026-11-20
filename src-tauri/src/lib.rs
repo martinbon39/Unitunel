@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutEvent, ShortcutState};
 
 const IDLE: u8 = 0;
@@ -40,6 +40,8 @@ struct App {
     pressed_at: Mutex<Option<(Instant, bool)>>,
     flushed: AtomicBool,
     over_rail: AtomicBool,
+    hotkey: Mutex<Option<Shortcut>>,
+    key_item: Mutex<Option<MenuItem<tauri::Wry>>>,
 }
 
 type State = Arc<App>;
@@ -48,12 +50,129 @@ fn overlay(app: &AppHandle) -> WebviewWindow {
     app.get_webview_window("overlay").expect("overlay window")
 }
 
-fn hotkey() -> Shortcut {
-    #[cfg(target_os = "macos")]
-    let m = Modifiers::ALT;
-    #[cfg(not(target_os = "macos"))]
-    let m = Modifiers::CONTROL;
-    Shortcut::new(Some(m), Code::Space)
+fn configured_hotkey() -> Shortcut {
+    Config::load()
+        .shortcut
+        .parse()
+        .or_else(|_| config::DEFAULT_SHORTCUT.parse())
+        .expect("default shortcut")
+}
+
+/// Human label of a shortcut: "⌃⌥⇧⌘ Espace" on macOS, "Ctrl+Alt+Maj+Win+Espace" elsewhere.
+fn shortcut_label(sc: &Shortcut) -> String {
+    let mac = cfg!(target_os = "macos");
+    let mods: [(Modifiers, &str, &str); 4] = [
+        (Modifiers::CONTROL, "⌃", "Ctrl"),
+        (Modifiers::ALT, "⌥", "Alt"),
+        (Modifiers::SHIFT, "⇧", "Maj"),
+        (Modifiers::SUPER, "⌘", "Win"),
+    ];
+    let parts: Vec<&str> = mods.iter().filter(|(m, _, _)| sc.mods.contains(*m)).map(|(_, a, b)| if mac { *a } else { *b }).collect();
+    let code = sc.key.to_string();
+    let key = match code.as_str() {
+        "Space" => "Espace".to_string(),
+        "Enter" => "Entrée".to_string(),
+        "Backspace" => "Retour arrière".to_string(),
+        c if c.starts_with("Key") => c[3..].to_string(),
+        c if c.starts_with("Digit") => c[5..].to_string(),
+        "ArrowUp" => "↑".to_string(),
+        "ArrowDown" => "↓".to_string(),
+        "ArrowLeft" => "←".to_string(),
+        "ArrowRight" => "→".to_string(),
+        c => c.to_string(),
+    };
+    if mac {
+        let gap = if key.chars().count() > 1 && !parts.is_empty() { " " } else { "" };
+        format!("{}{gap}{key}", parts.concat())
+    } else {
+        parts.into_iter().chain([key.as_str()]).collect::<Vec<_>>().join("+")
+    }
+}
+
+/// Parses a shortcut and refuses those that would take an everyday key away from every other app.
+fn validate_shortcut(accel: &str) -> Result<Shortcut, String> {
+    let sc: Shortcut = accel.parse().map_err(|_| "Touche non reconnue".to_string())?;
+    let key = sc.key.to_string();
+    let fkey = key.len() > 1 && key.starts_with('F') && key[1..].chars().all(|c| c.is_ascii_digit());
+    let strong = Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER;
+    if sc.key == Code::Escape {
+        return Err("Échap sert déjà à quitter le dessin".into());
+    }
+    if !fkey && !sc.mods.intersects(strong) {
+        let mods = if cfg!(target_os = "macos") { "⌃, ⌥ ou ⌘" } else { "Ctrl, Alt ou Win" };
+        return Err(format!("Ajoute {mods} (ou choisis une touche F1–F24)"));
+    }
+    let primary = if cfg!(target_os = "macos") { Modifiers::SUPER } else { Modifiers::CONTROL };
+    let editing = ["KeyA", "KeyC", "KeyS", "KeyV", "KeyW", "KeyX", "KeyY", "KeyZ", "KeyQ", "Tab"];
+    if sc.mods == primary && editing.contains(&key.as_str()) {
+        return Err(format!("{} est déjà utilisé partout (copier, coller, annuler…)", shortcut_label(&sc)));
+    }
+    if (sc.mods == Modifiers::ALT && (sc.key == Code::F4 || sc.key == Code::Tab)) || (sc.mods == Modifiers::SUPER && sc.key == Code::Tab) {
+        return Err(format!("{} appartient au système", shortcut_label(&sc)));
+    }
+    let altgr = !cfg!(target_os = "macos") && sc.mods == Modifiers::CONTROL | Modifiers::ALT && !fkey && key != "Space";
+    if altgr {
+        return Err("Ctrl+Alt+touche = AltGr sur un clavier français (€, @, #…) : choisis autre chose".into());
+    }
+    Ok(sc)
+}
+
+fn refresh_shortcut_display(app: &AppHandle, sc: &Shortcut) {
+    let label = shortcut_label(sc);
+    if let Some(item) = app.state::<State>().key_item.lock().as_ref() {
+        let _ = item.set_text(format!("Raccourci : {label} — changer…"));
+    }
+    if let Some(tray) = app.tray_by_id("tray") {
+        let _ = tray.set_tooltip(Some(format!("Unitunel · {label}")));
+    }
+}
+
+/// While the shortcut window is open the global hotkey is released, so pressing it reaches the window.
+fn release_hotkey(app: &AppHandle) {
+    if let Some(sc) = *app.state::<State>().hotkey.lock() {
+        let _ = app.global_shortcut().unregister(sc);
+    }
+    let _ = app.global_shortcut().unregister(escape());
+}
+
+fn restore_hotkey(app: &AppHandle) {
+    if let Some(sc) = *app.state::<State>().hotkey.lock() {
+        if !app.global_shortcut().is_registered(sc) {
+            let _ = app.global_shortcut().register(sc);
+        }
+    }
+    let st = app.state::<State>();
+    if st.phase.load(Ordering::SeqCst) == RECORDING && st.mode.load(Ordering::SeqCst) != LIVE {
+        let _ = app.global_shortcut().register(escape());
+    }
+}
+
+fn open_shortcut_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("shortcut") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let Ok(w) = WebviewWindowBuilder::new(app, "shortcut", WebviewUrl::App("shortcut.html".into()))
+        .title("Raccourci Unitunel")
+        .inner_size(420.0, 300.0)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .center()
+        .focused(true)
+        .build()
+    else {
+        return;
+    };
+    release_hotkey(app);
+    let handle = app.clone();
+    w.on_window_event(move |e| {
+        if let tauri::WindowEvent::Destroyed = e {
+            restore_hotkey(&handle);
+        }
+    });
+    let _ = w.set_focus();
 }
 
 fn escape() -> Shortcut {
@@ -230,6 +349,9 @@ fn on_shortcut(app: &AppHandle, sc: &Shortcut, ev: ShortcutEvent) {
         }
         return;
     }
+    if Some(*sc) != *st.hotkey.lock() {
+        return;
+    }
     match state {
         ShortcutState::Pressed => {
             let mut p = st.pressed_at.lock();
@@ -301,6 +423,42 @@ fn flushed(st: tauri::State<State>) {
 }
 
 #[tauri::command]
+fn get_shortcut(st: tauri::State<State>) -> serde_json::Value {
+    let sc = st.hotkey.lock().unwrap_or_else(configured_hotkey);
+    let default: Shortcut = config::DEFAULT_SHORTCUT.parse().expect("default shortcut");
+    json!({ "label": shortcut_label(&sc), "default": shortcut_label(&default), "defaultAccel": config::DEFAULT_SHORTCUT })
+}
+
+#[tauri::command]
+fn describe_shortcut(accel: String) -> Result<String, String> {
+    validate_shortcut(&accel).map(|sc| shortcut_label(&sc))
+}
+
+#[tauri::command]
+fn set_shortcut(app: AppHandle, st: tauri::State<State>, accel: String) -> Result<String, String> {
+    let sc = validate_shortcut(&accel)?;
+    // The shortcut window has released the old hotkey; closing it registers whichever one is current.
+    release_hotkey(&app);
+    if let Err(e) = app.global_shortcut().register(sc) {
+        let e = e.to_string();
+        return Err(if e.contains("already registered") || e.contains("RegisterEventHotKey failed") {
+            "Cette combinaison est déjà prise par une autre application".into()
+        } else if e.contains("Unknown") {
+            "Le système ne sait pas utiliser cette touche comme raccourci".into()
+        } else {
+            format!("Raccourci refusé : {e}")
+        });
+    }
+    if let Err(e) = config::save_shortcut(&sc.into_string()) {
+        let _ = app.global_shortcut().unregister(sc);
+        return Err(format!("Impossible d'enregistrer : {e}"));
+    }
+    *st.hotkey.lock() = Some(sc);
+    refresh_shortcut_display(&app, &sc);
+    Ok(shortcut_label(&sc))
+}
+
+#[tauri::command]
 fn finish(app: AppHandle, st: tauri::State<State>, keep: bool) {
     end(&app, st.inner(), keep);
 }
@@ -308,17 +466,20 @@ fn finish(app: AppHandle, st: tauri::State<State>, keep: bool) {
 pub fn run() {
     let state: State = Arc::new(App::default());
     tauri::Builder::default()
+        .enable_macos_default_menu(false)
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(on_shortcut).build())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish])
+        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish, get_shortcut, describe_shortcut, set_shortcut])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let _ = overlay(app.handle()).set_ignore_cursor_events(true);
-            if let Err(e) = app.global_shortcut().register(hotkey()) {
-                eprintln!("raccourci indisponible : {e}");
+            let hk = configured_hotkey();
+            match app.global_shortcut().register(hk) {
+                Ok(()) => *app.state::<State>().hotkey.lock() = Some(hk),
+                Err(e) => eprintln!("raccourci indisponible : {e}"),
             }
             {
                 use tauri_plugin_autostart::ManagerExt;
@@ -328,16 +489,18 @@ pub fn run() {
                 }
             }
             let cfg = Config::load();
+            let key_item = MenuItem::with_id(app, "key", format!("Raccourci : {} — changer…", shortcut_label(&hk)), true, None::<&str>)?;
             let open_dir = MenuItem::with_id(app, "dir", "Ouvrir les tunnels", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "cfg", "Réglages (clé Groq…)", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_dir, &settings, &quit])?;
+            let menu = Menu::with_items(app, &[&key_item, &open_dir, &settings, &quit])?;
             let tunnels = cfg.tunnels_dir();
             TrayIconBuilder::with_id("tray")
                 .icon(app.default_window_icon().cloned().expect("icon"))
-                .tooltip(if cfg!(target_os = "macos") { "Unitunel · ⌥ Espace" } else { "Unitunel · Ctrl+Espace" })
+                .tooltip(format!("Unitunel · {}", shortcut_label(&hk)))
                 .menu(&menu)
                 .on_menu_event(move |app, e| match e.id().as_ref() {
+                    "key" => open_shortcut_window(app),
                     "dir" => {
                         let _ = std::fs::create_dir_all(&tunnels);
                         let _ = open::that(&tunnels);
@@ -349,6 +512,7 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+            *app.state::<State>().key_item.lock() = Some(key_item);
             Ok(())
         })
         .run(tauri::generate_context!())
