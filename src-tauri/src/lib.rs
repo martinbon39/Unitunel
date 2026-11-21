@@ -4,6 +4,7 @@ mod config;
 mod platform;
 mod session;
 mod transcribe;
+mod upload;
 
 use base64::Engine;
 use capture::Screen;
@@ -277,10 +278,19 @@ fn end(app: &AppHandle, st: &State, keep: bool) {
         let focus = session.focus;
         let cfg = Config::load();
         match session.finish() {
-            Ok((text, _dir)) => {
+            Ok((text, dir)) => {
+                let (text, warning) = if cfg.remote.enabled {
+                    let _ = overlay(&app).emit("hint", json!({ "text": "envoi au serveur" }));
+                    match upload::send(&cfg.remote, &dir, &text) {
+                        Ok(moved) => (moved, None),
+                        Err(e) => (text, Some(format!("serveur injoignable, gardé ici · {e}"))),
+                    }
+                } else {
+                    (text, None)
+                };
                 let copied = arboard::Clipboard::new().and_then(|mut c| c.set_text(text.clone())).is_ok();
-                let _ = overlay(&app).emit("tunnel", json!({ "state": "done", "chars": text.chars().count() }));
-                std::thread::sleep(Duration::from_millis(380));
+                let _ = overlay(&app).emit("tunnel", json!({ "state": "done", "chars": text.chars().count(), "warning": warning }));
+                std::thread::sleep(Duration::from_millis(if warning.is_some() { 3200 } else { 380 }));
                 let _ = overlay(&app).hide();
                 if copied && cfg.auto_paste && platform::restore(focus) {
                     std::thread::sleep(Duration::from_millis(90));
@@ -456,11 +466,16 @@ fn get_settings(st: tauri::State<State>) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 fn save_settings(fields: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
-    const EDITABLE: [&str; 6] = ["groq_api_key", "language", "model", "vocabulary", "auto_paste", "output_dir"];
+    const EDITABLE: [&str; 7] = ["groq_api_key", "language", "model", "vocabulary", "auto_paste", "output_dir", "remote"];
     if let Some(k) = fields.keys().find(|k| !EDITABLE.contains(&k.as_str())) {
         return Err(format!("Réglage inconnu : {k}"));
     }
     config::save_fields(fields)
+}
+
+#[tauri::command]
+async fn test_remote(remote: config::Remote) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || upload::test(&remote)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -551,7 +566,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(on_shortcut).build())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish, get_settings, save_settings, capture_shortcut, open_target, describe_shortcut, set_shortcuts])
+        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish, get_settings, save_settings, capture_shortcut, open_target, test_remote, describe_shortcut, set_shortcuts])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);

@@ -94,6 +94,8 @@ a:hover { text-decoration-color: var(--text); }
 #broken { display: none; margin-bottom: 18px; padding: 14px 16px; border-radius: 12px; box-shadow: 0 0 0 1px var(--line-strong) inset; }
 #broken p { margin-bottom: 10px; }
 body.broken #broken { display: block; }
+body:not(.remote-on) .field.remote { display: none; }
+code { font: 400 12px "Mono", ui-monospace, monospace; }
 body.broken .card.cfg { opacity: .35; pointer-events: none; }
 
 #toast { position: fixed; left: 50%; bottom: 18px; height: 30px; padding: 0 14px; border-radius: 99px; display: flex; align-items: center;
@@ -181,6 +183,31 @@ footer { margin-top: 24px; text-align: center; color: var(--faint); font-size: 1
       <button id="dir-open">Ouvrir</button>
     </div>
     <div class="hint">Laisse vide pour le dossier par défaut.</div>
+  </div>
+</div>
+
+<h2>Serveur</h2>
+<div class="card cfg">
+  <div class="field">
+    <div class="txt"><label for="r-on">Envoyer les tunnels sur un serveur</label><div class="hint">À l'envoi, le dossier (captures, audio, texte) part en SSH, et le texte collé pointe vers le serveur.</div></div>
+    <span class="switch"><input id="r-on" type="checkbox"><i></i></span>
+  </div>
+  <div class="field stack remote">
+    <label for="r-target">Serveur SSH</label>
+    <input id="r-target" type="text" spellcheck="false" placeholder="utilisateur@adresse">
+    <div class="hint">Utilise ta clé SSH habituelle, comme <code>ssh</code> dans un terminal.</div>
+  </div>
+  <div class="field stack remote">
+    <label for="r-dir">Dossier sur le serveur</label>
+    <div class="inline">
+      <input id="r-dir" type="text" spellcheck="false" placeholder="/home/utilisateur/tunnels">
+      <button id="r-test">Tester</button>
+    </div>
+    <div class="hint" id="r-hint">Chemin absolu. Il est créé s'il n'existe pas.</div>
+  </div>
+  <div class="field remote">
+    <div class="txt"><label for="r-keep">Garder aussi une copie ici</label><div class="hint">Sinon le dossier local est supprimé une fois copié. S'il y a un souci de réseau, il reste toujours ici.</div></div>
+    <span class="switch"><input id="r-keep" type="checkbox"><i></i></span>
   </div>
 </div>
 
@@ -342,6 +369,24 @@ $("vocab").addEventListener("change", () => save({ vocabulary: vocabList() }));
 $("paste").addEventListener("change", () => save({ auto_paste: $("paste").checked }));
 $("dir").addEventListener("change", () => save({ output_dir: $("dir").value.trim() || null }));
 $("dir-open").onclick = () => open("tunnels");
+
+const remote = () => ({ enabled: $("r-on").checked, target: $("r-target").value.trim(), dir: $("r-dir").value.trim(), keep_local: $("r-keep").checked });
+function saveRemote() { document.body.classList.toggle("remote-on", $("r-on").checked); save({ remote: remote() }); }
+for (const id of ["r-on", "r-target", "r-dir", "r-keep"]) $(id).addEventListener("change", saveRemote);
+$("r-test").onclick = async () => {
+  const hint = $("r-hint");
+  $("r-test").disabled = true;
+  hint.className = "hint";
+  hint.textContent = "Connexion…";
+  try {
+    await call("test_remote", { remote: remote() });
+    hint.textContent = "Connexion OK, le dossier est prêt.";
+  } catch (err) {
+    hint.className = "hint err";
+    hint.textContent = String(err);
+  }
+  $("r-test").disabled = false;
+};
 $("cfg-open").onclick = () => open("config");
 $("broken-open").onclick = () => open("config");
 
@@ -369,6 +414,11 @@ async function load() {
   $("paste").checked = c.auto_paste;
   $("dir").value = c.output_dir || "";
   $("dir").placeholder = s.tunnelsDir;
+  $("r-on").checked = c.remote.enabled;
+  $("r-target").value = c.remote.target;
+  $("r-dir").value = c.remote.dir;
+  $("r-keep").checked = c.remote.keep_local;
+  document.body.classList.toggle("remote-on", c.remote.enabled);
 }
 load();
 </script>

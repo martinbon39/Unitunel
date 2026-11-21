@@ -176,8 +176,8 @@ T.event.listen("tunnel", ({ payload }) => {
   } else if (state === "done") {
     body.classList.remove("busy");
     body.classList.add("send");
-    setLabel(`collé · ${payload.chars} car.`);
-    setTimeout(() => body.classList.add("out"), 220);
+    setLabel(payload.warning ? payload.warning.slice(0, 90) : `collé · ${payload.chars} car.`);
+    setTimeout(() => body.classList.add("out"), payload.warning ? 2800 : 220);
   } else if (state === "cancelled") {
     strokes = [];
     clearInk();

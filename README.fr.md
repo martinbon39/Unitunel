@@ -114,6 +114,7 @@ Il te faut une [clé API Groq](https://console.groq.com/keys) gratuite. Au premi
 | `vocabulary` | noms propres à bien orthographier |
 | `auto_paste` | coller le tunnel dans la fenêtre active, ou seulement le copier |
 | `output_dir` | où ranger les tunnels (par défaut `Documents/Unitunel`) |
+| `remote` | envoyer les tunnels en SSH sur un serveur : `enabled`, `target` (`utilisateur@adresse`), `dir` (chemin absolu), `keep_local` |
 | `shortcuts` | jusqu'à 3 raccourcis (`["Control+Space", "PageDown"]`), plus simple à changer dans Réglages |
 
 Emplacement : `%APPDATA%\unitunel\config.json` sur Windows, `~/Library/Application Support/unitunel/config.json` sur macOS.

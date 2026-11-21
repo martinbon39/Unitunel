@@ -11,6 +11,17 @@ pub struct Config {
     pub auto_paste: bool,
     pub output_dir: Option<PathBuf>,
     pub shortcuts: Vec<String>,
+    pub remote: Remote,
+}
+
+/// Where tunnels are copied over SSH when sent, instead of staying on this computer.
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct Remote {
+    pub enabled: bool,
+    pub target: String,
+    pub dir: String,
+    pub keep_local: bool,
 }
 
 impl Default for Config {
@@ -23,6 +34,7 @@ impl Default for Config {
             auto_paste: true,
             output_dir: None,
             shortcuts: vec![DEFAULT_SHORTCUT.into()],
+            remote: Remote::default(),
         }
     }
 }
