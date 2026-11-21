@@ -127,7 +127,7 @@ fn refresh_shortcut_display(app: &AppHandle, sc: &Shortcut) {
     }
 }
 
-/// While the shortcut window is open the global hotkey is released, so pressing it reaches the window.
+/// While the shortcut field has focus the global hotkey is released, so pressing it reaches the window.
 fn release_hotkey(app: &AppHandle) {
     if let Some(sc) = *app.state::<State>().hotkey.lock() {
         let _ = app.global_shortcut().unregister(sc);
@@ -147,25 +147,23 @@ fn restore_hotkey(app: &AppHandle) {
     }
 }
 
-fn open_shortcut_window(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("shortcut") {
+fn open_settings_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
         let _ = w.set_focus();
         return;
     }
-    let Ok(w) = WebviewWindowBuilder::new(app, "shortcut", WebviewUrl::App("shortcut.html".into()))
-        .title("Raccourci Unitunel")
-        .inner_size(420.0, 300.0)
-        .resizable(false)
+    let Ok(w) = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("Réglages d'Unitunel")
+        .inner_size(560.0, 720.0)
+        .min_inner_size(480.0, 520.0)
         .maximizable(false)
-        .minimizable(false)
         .center()
         .focused(true)
         .build()
     else {
         return;
     };
-    release_hotkey(app);
     let handle = app.clone();
     w.on_window_event(move |e| {
         if let tauri::WindowEvent::Destroyed = e {
@@ -423,10 +421,49 @@ fn flushed(st: tauri::State<State>) {
 }
 
 #[tauri::command]
-fn get_shortcut(st: tauri::State<State>) -> serde_json::Value {
+fn get_settings(st: tauri::State<State>) -> Result<serde_json::Value, String> {
+    let cfg = config::read_file()?;
     let sc = st.hotkey.lock().unwrap_or_else(configured_hotkey);
     let default: Shortcut = config::DEFAULT_SHORTCUT.parse().expect("default shortcut");
-    json!({ "label": shortcut_label(&sc), "default": shortcut_label(&default), "defaultAccel": config::DEFAULT_SHORTCUT })
+    Ok(json!({
+        "config": cfg,
+        "tunnelsDir": cfg.tunnels_dir(),
+        "envKey": std::env::var("GROQ_API_KEY").map(|k| !k.trim().is_empty()).unwrap_or(false),
+        "shortcut": { "label": shortcut_label(&sc), "default": shortcut_label(&default), "defaultAccel": config::DEFAULT_SHORTCUT },
+    }))
+}
+
+#[tauri::command]
+fn save_settings(fields: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    const EDITABLE: [&str; 6] = ["groq_api_key", "language", "model", "vocabulary", "auto_paste", "output_dir"];
+    if let Some(k) = fields.keys().find(|k| !EDITABLE.contains(&k.as_str())) {
+        return Err(format!("Réglage inconnu : {k}"));
+    }
+    config::save_fields(fields)
+}
+
+#[tauri::command]
+fn capture_shortcut(app: AppHandle, on: bool) {
+    if on {
+        release_hotkey(&app);
+    } else {
+        restore_hotkey(&app);
+    }
+}
+
+#[tauri::command]
+fn open_target(what: String) -> Result<(), String> {
+    let target = match what.as_str() {
+        "tunnels" => {
+            let dir = Config::load().tunnels_dir();
+            let _ = std::fs::create_dir_all(&dir);
+            dir.into_os_string()
+        }
+        "config" => config::config_path().into_os_string(),
+        "groq" => "https://console.groq.com/keys".into(),
+        _ => return Err(format!("Cible inconnue : {what}")),
+    };
+    open::that(target).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -437,7 +474,7 @@ fn describe_shortcut(accel: String) -> Result<String, String> {
 #[tauri::command]
 fn set_shortcut(app: AppHandle, st: tauri::State<State>, accel: String) -> Result<String, String> {
     let sc = validate_shortcut(&accel)?;
-    // The shortcut window has released the old hotkey; closing it registers whichever one is current.
+    // The capture field has released the old hotkey; leaving it registers whichever one is current.
     release_hotkey(&app);
     if let Err(e) = app.global_shortcut().register(sc) {
         let e = e.to_string();
@@ -449,7 +486,9 @@ fn set_shortcut(app: AppHandle, st: tauri::State<State>, accel: String) -> Resul
             format!("Raccourci refusé : {e}")
         });
     }
-    if let Err(e) = config::save_shortcut(&sc.into_string()) {
+    let mut fields = serde_json::Map::new();
+    fields.insert("shortcut".into(), sc.into_string().into());
+    if let Err(e) = config::save_fields(fields) {
         let _ = app.global_shortcut().unregister(sc);
         return Err(format!("Impossible d'enregistrer : {e}"));
     }
@@ -471,7 +510,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(on_shortcut).build())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish, get_shortcut, describe_shortcut, set_shortcut])
+        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish, get_settings, save_settings, capture_shortcut, open_target, describe_shortcut, set_shortcut])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -488,25 +527,19 @@ pub fn run() {
                     let _ = al.enable();
                 }
             }
-            let cfg = Config::load();
             let key_item = MenuItem::with_id(app, "key", format!("Raccourci : {} — changer…", shortcut_label(&hk)), true, None::<&str>)?;
             let open_dir = MenuItem::with_id(app, "dir", "Ouvrir les tunnels", true, None::<&str>)?;
-            let settings = MenuItem::with_id(app, "cfg", "Réglages (clé Groq…)", true, None::<&str>)?;
+            let settings = MenuItem::with_id(app, "cfg", "Réglages…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&key_item, &open_dir, &settings, &quit])?;
-            let tunnels = cfg.tunnels_dir();
             TrayIconBuilder::with_id("tray")
                 .icon(app.default_window_icon().cloned().expect("icon"))
                 .tooltip(format!("Unitunel · {}", shortcut_label(&hk)))
                 .menu(&menu)
                 .on_menu_event(move |app, e| match e.id().as_ref() {
-                    "key" => open_shortcut_window(app),
+                    "key" | "cfg" => open_settings_window(app),
                     "dir" => {
-                        let _ = std::fs::create_dir_all(&tunnels);
-                        let _ = open::that(&tunnels);
-                    }
-                    "cfg" => {
-                        let _ = open::that(config::config_path());
+                        let _ = open_target("tunnels".into());
                     }
                     "quit" => app.exit(0),
                     _ => {}

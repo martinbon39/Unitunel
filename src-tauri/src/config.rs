@@ -32,16 +32,26 @@ pub const DEFAULT_SHORTCUT: &str = "Alt+Space";
 #[cfg(not(target_os = "macos"))]
 pub const DEFAULT_SHORTCUT: &str = "Control+Space";
 
-/// Writes only the `shortcut` key, so the rest of the file (and a key taken from GROQ_API_KEY) stays as it is.
-pub fn save_shortcut(accel: &str) -> Result<(), String> {
-    let path = config_path();
-    let mut v: serde_json::Value = match std::fs::read_to_string(&path) {
+fn read_file_value() -> Result<serde_json::Value, String> {
+    match std::fs::read_to_string(config_path()) {
         Ok(s) => serde_json::from_str(s.trim_start_matches('\u{feff}'))
-            .map_err(|e| format!("config.json contient une erreur, corrige-le d'abord ({e})"))?,
-        Err(_) => serde_json::to_value(Config::default()).map_err(|e| e.to_string())?,
-    };
+            .map_err(|e| format!("config.json contient une erreur, corrige-le d'abord ({e})")),
+        Err(_) => serde_json::to_value(Config::default()).map_err(|e| e.to_string()),
+    }
+}
+
+/// The settings as written in the file, without the GROQ_API_KEY fallback that `load` adds.
+pub fn read_file() -> Result<Config, String> {
+    serde_json::from_value(read_file_value()?).map_err(|e| format!("config.json contient une valeur invalide ({e})"))
+}
+
+/// Writes only the given keys, so the rest of the file (unknown keys included) stays as it is.
+pub fn save_fields(fields: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let mut v = read_file_value()?;
     let obj = v.as_object_mut().ok_or("config.json n'est pas un objet")?;
-    obj.insert("shortcut".into(), accel.into());
+    obj.extend(fields);
+    serde_json::from_value::<Config>(v.clone()).map_err(|e| format!("Valeur invalide ({e})"))?;
+    let path = config_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }

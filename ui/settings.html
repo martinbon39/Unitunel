@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Réglages d'Unitunel</title>
+<style>
+@font-face { font-family: "Mono"; src: url("fonts/GeistMono-Regular.woff2") format("woff2"); }
+:root {
+  --bg: #000; --card: #0e0e0e; --raised: #1a1a1a; --hover: #242424;
+  --line: rgba(255,255,255,.1); --line-strong: rgba(255,255,255,.22);
+  --text: #f5f5f5; --dim: rgba(245,245,245,.56); --faint: rgba(245,245,245,.34);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --spring: cubic-bezier(.34, 1.36, .5, 1);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; background: var(--bg); }
+body { color: var(--text); font: 400 13px/1.45 system-ui, "Segoe UI Variable Text", "SF Pro Text", sans-serif;
+  padding: 26px 24px 64px; user-select: none; -webkit-user-select: none; }
+header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 22px; }
+h1 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+header span { font: 400 11px "Mono", ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+h2 { font: 400 11px "Mono", ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); margin: 26px 2px 10px; }
+.card { background: var(--card); border-radius: 14px; box-shadow: 0 0 0 1px var(--line) inset; }
+.field { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
+.field + .field { box-shadow: 0 -1px 0 var(--line); }
+.field.stack { flex-direction: column; align-items: stretch; gap: 8px; }
+.field .txt { flex: 1; min-width: 0; }
+.field label, .field .name { font-weight: 500; display: block; }
+.hint { color: var(--dim); font-size: 12px; margin-top: 2px; }
+.hint.err { color: var(--text); }
+.hint.err::before { content: "! "; font-weight: 700; }
+
+/* Shortcut capture */
+#zone { margin: 4px; padding: 22px 16px 16px; border-radius: 11px; outline: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  transition: background 200ms ease, box-shadow 200ms ease; }
+#zone:hover { background: #121212; }
+#zone:focus { background: #141414; box-shadow: 0 0 0 1px var(--line-strong) inset; cursor: default; animation: listen 1.6s ease-in-out infinite; }
+#zone.ok { box-shadow: 0 0 0 1.5px var(--text) inset, 0 0 26px rgba(255,255,255,.12); animation: none; }
+@keyframes listen { 50% { box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset, 0 0 22px rgba(255,255,255,.06); } }
+#caps { display: flex; gap: 6px; min-height: 40px; align-items: center; }
+kbd { font: 400 15px/1 "Mono", ui-monospace, monospace; min-width: 40px; height: 40px; padding: 0 12px; border-radius: 9px;
+  display: grid; place-items: center; background: var(--raised); color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-strong) inset, 0 2px 0 rgba(255,255,255,.06); animation: pop 260ms var(--ease-out); }
+kbd.wait { color: var(--faint); background: transparent; box-shadow: 0 0 0 1px var(--line) inset; }
+@keyframes pop { from { transform: translateY(3px) scale(.92); opacity: 0; } }
+#kstatus { font-size: 12px; color: var(--dim); text-align: center; min-height: 17px; }
+#kstatus.err { color: var(--text); }
+#kstatus.err::before { content: "! "; font-weight: 700; }
+.krow { display: flex; gap: 8px; padding: 0 16px 14px; justify-content: flex-end; }
+
+/* Controls */
+input[type=text], input[type=password], select, textarea { all: unset; box-sizing: border-box; background: var(--raised); border-radius: 8px; padding: 0 10px; height: 32px;
+  font: 400 12.5px/1.4 "Mono", ui-monospace, monospace; color: var(--text); box-shadow: 0 0 0 1px var(--line) inset; transition: box-shadow 140ms ease;
+  user-select: text; -webkit-user-select: text; }
+input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 1px var(--line-strong) inset, 0 0 0 3px rgba(255,255,255,.08); }
+input::placeholder, textarea::placeholder { color: var(--faint); }
+textarea { height: auto; min-height: 88px; padding: 8px 10px; white-space: pre-wrap; resize: vertical; }
+select { padding-right: 28px; line-height: 32px; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%), linear-gradient(-45deg, transparent 50%, var(--dim) 50%);
+  background-position: right 14px center, right 10px center; background-size: 4px 4px; background-repeat: no-repeat; }
+select option { background: #111; color: var(--text); }
+.inline { display: flex; gap: 6px; }
+.inline input { flex: 1; min-width: 0; }
+button { all: unset; box-sizing: border-box; height: 32px; padding: 0 13px; border-radius: 8px; font-size: 12.5px; cursor: pointer; text-align: center; white-space: nowrap;
+  background: var(--raised); box-shadow: 0 0 0 1px var(--line) inset; transition: background 140ms ease, opacity 140ms ease, transform 160ms var(--spring); }
+button:hover { background: var(--hover); }
+button:active { transform: scale(.97); }
+button:focus-visible { box-shadow: 0 0 0 2px var(--text); }
+button.primary { background: var(--text); color: #000; font-weight: 600; box-shadow: none; }
+button.primary:hover { background: #fff; }
+button:disabled { opacity: .3; cursor: default; transform: none; }
+a { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; cursor: pointer; }
+a:hover { text-decoration-color: var(--text); }
+
+.seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: var(--raised); box-shadow: 0 0 0 1px var(--line) inset; }
+.seg button { height: 26px; padding: 0 12px; border-radius: 6px; background: transparent; box-shadow: none; color: var(--dim); }
+.seg button.on { background: var(--text); color: #000; font-weight: 600; }
+
+.switch { position: relative; width: 38px; height: 22px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch i { position: absolute; inset: 0; border-radius: 99px; background: var(--raised); box-shadow: 0 0 0 1px var(--line-strong) inset; transition: background 200ms ease; }
+.switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--dim);
+  transition: transform 260ms var(--spring), background 200ms ease; }
+.switch input:checked + i { background: var(--text); }
+.switch input:checked + i::after { transform: translateX(16px); background: #000; }
+.switch input:focus-visible + i { box-shadow: 0 0 0 2px var(--text); }
+
+#broken { display: none; margin-bottom: 18px; padding: 14px 16px; border-radius: 12px; box-shadow: 0 0 0 1px var(--line-strong) inset; }
+#broken p { margin-bottom: 10px; }
+body.broken #broken { display: block; }
+body.broken .card.cfg { opacity: .35; pointer-events: none; }
+
+#toast { position: fixed; left: 50%; bottom: 18px; height: 30px; padding: 0 14px; border-radius: 99px; display: flex; align-items: center;
+  background: var(--text); color: #000; font-weight: 600; font-size: 12px; transform: translate(-50%, 60px); opacity: 0;
+  transition: transform 420ms var(--spring), opacity 160ms ease; pointer-events: none; }
+#toast.show { transform: translate(-50%, 0); opacity: 1; }
+#toast.err { background: var(--raised); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong) inset; }
+
+footer { margin-top: 24px; text-align: center; color: var(--faint); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header><h1>Unitunel</h1><span>Réglages</span></header>
+
+<div id="broken">
+  <p id="broken-msg"></p>
+  <button id="broken-open">Ouvrir config.json</button>
+</div>
+
+<h2>Raccourci</h2>
+<div class="card">
+  <div id="zone" tabindex="0">
+    <div id="caps"></div>
+    <div id="kstatus"></div>
+  </div>
+  <div class="krow">
+    <button id="kreset"></button>
+    <button id="ksave" class="primary" disabled>Enregistrer</button>
+  </div>
+</div>
+
+<h2>Transcription</h2>
+<div class="card cfg">
+  <div class="field stack">
+    <label for="key">Clé API Groq</label>
+    <div class="inline">
+      <input id="key" type="password" spellcheck="false" autocomplete="off" placeholder="gsk_…">
+      <button id="key-show">Afficher</button>
+    </div>
+    <div class="hint" id="key-hint">Gratuite, sur <a id="key-link">console.groq.com/keys</a>. Elle reste sur cet ordinateur.</div>
+  </div>
+  <div class="field">
+    <div class="txt"><label for="lang">Langue parlée</label></div>
+    <select id="lang">
+      <option value="fr">Français</option>
+      <option value="en">English</option>
+      <option value="es">Español</option>
+      <option value="de">Deutsch</option>
+      <option value="it">Italiano</option>
+      <option value="pt">Português</option>
+      <option value="nl">Nederlands</option>
+    </select>
+  </div>
+  <div class="field">
+    <div class="txt"><span class="name">Modèle</span><div class="hint" id="model-hint"></div></div>
+    <div class="seg" id="model">
+      <button data-v="whisper-large-v3">Précis</button>
+      <button data-v="whisper-large-v3-turbo">Rapide</button>
+    </div>
+  </div>
+  <div class="field stack">
+    <label for="vocab">Vocabulaire</label>
+    <textarea id="vocab" spellcheck="false" placeholder="Un mot par ligne"></textarea>
+    <div class="hint">Noms propres et termes techniques à bien orthographier, un par ligne.</div>
+  </div>
+</div>
+
+<h2>Après l'envoi</h2>
+<div class="card cfg">
+  <div class="field">
+    <div class="txt"><label for="paste">Coller automatiquement</label><div class="hint">Colle le tunnel dans l'app que tu utilisais. Sinon, il est seulement copié.</div></div>
+    <span class="switch"><input id="paste" type="checkbox"><i></i></span>
+  </div>
+  <div class="field stack">
+    <label for="dir">Dossier des tunnels</label>
+    <div class="inline">
+      <input id="dir" type="text" spellcheck="false" placeholder="Documents/Unitunel">
+      <button id="dir-open">Ouvrir</button>
+    </div>
+    <div class="hint">Laisse vide pour le dossier par défaut.</div>
+  </div>
+</div>
+
+<footer>Tout est enregistré automatiquement · <a id="cfg-open">config.json</a></footer>
+<div id="toast"></div>
+
+<script>
+const T = window.__TAURI__;
+const call = (c, a) => T.core.invoke(c, a);
+const $ = (id) => document.getElementById(id);
+const mac = navigator.platform.toUpperCase().includes("MAC");
+
+let toastTimer;
+function toast(text, err) {
+  const t = $("toast");
+  t.textContent = text;
+  t.className = "show" + (err ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.className = err ? "err" : ""), err ? 3600 : 1400);
+}
+async function save(fields) {
+  try { await call("save_settings", { fields }); toast("Enregistré"); }
+  catch (err) { toast(String(err), true); }
+}
+const open = (what) => call("open_target", { what }).catch((err) => toast(String(err), true));
+
+/* ---- Shortcut ---- */
+let current = "";
+let pending = null;
+let error = false;
+
+function caps(label, waiting) {
+  const parts = mac ? (label.match(/^[⌃⌥⇧⌘]*/)[0].split("").concat(label.replace(/^[⌃⌥⇧⌘]*\s?/, "") || [])) : label.split("+");
+  $("caps").replaceChildren(...parts.filter(Boolean).map((p) => Object.assign(document.createElement("kbd"), { textContent: p })));
+  if (waiting) $("caps").appendChild(Object.assign(document.createElement("kbd"), { className: "wait", textContent: "…" }));
+}
+function kstatus(text, err) { error = !!err; $("kstatus").textContent = text; $("kstatus").className = err ? "err" : ""; }
+function idle() {
+  pending = null;
+  $("ksave").disabled = true;
+  $("zone").classList.remove("ok");
+  caps(current);
+  kstatus(document.activeElement === $("zone")
+    ? "J'écoute… appuie sur la combinaison voulue."
+    : "Appuie une fois pour démarrer, une deuxième pour envoyer, ou maintiens pour parler. Clique ici pour le changer.");
+}
+function refuse(text) {
+  pending = null;
+  $("ksave").disabled = true;
+  $("zone").classList.remove("ok");
+  caps(current);
+  kstatus(text, true);
+}
+
+function mods(e) {
+  const m = [];
+  if (e.ctrlKey) m.push(["Control", mac ? "⌃" : "Ctrl"]);
+  if (e.altKey) m.push(["Alt", mac ? "⌥" : "Alt"]);
+  if (e.shiftKey) m.push(["Shift", mac ? "⇧" : "Maj"]);
+  if (e.metaKey) m.push(["Super", mac ? "⌘" : "Win"]);
+  return m;
+}
+const MODIFIER_CODES = /^(Control|Alt|Shift|Meta|OS|AltGraph)(Left|Right)?$/;
+// Windows registers letters by virtual key, which follows the layout (AZERTY A = KeyQ); macOS registers the physical key.
+const keyName = (e) => (!mac && /^[a-z]$/i.test(e.key) ? "Key" + e.key.toUpperCase() : e.code);
+
+$("zone").addEventListener("focus", () => { call("capture_shortcut", { on: true }); if (!pending) idle(); });
+$("zone").addEventListener("blur", () => { call("capture_shortcut", { on: false }); if (!pending && !error) idle(); });
+$("zone").addEventListener("keydown", async (e) => {
+  if (e.code === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey) return;
+  e.preventDefault();
+  if (!mac && e.getModifierState("AltGraph")) return refuse("AltGr sert à taper €, @, #… : choisis une autre combinaison");
+  const m = mods(e);
+  if (MODIFIER_CODES.test(e.code)) {
+    pending = null;
+    $("ksave").disabled = true;
+    $("zone").classList.remove("ok");
+    caps(m.map((x) => x[1]).join(mac ? "" : "+"), true);
+    kstatus("Ajoute maintenant une touche (Espace, une lettre, F5…)");
+    return;
+  }
+  if (e.code === "Escape" && !m.length) { idle(); $("zone").blur(); return; }
+  const accel = m.map((x) => x[0]).concat(keyName(e)).join("+");
+  try {
+    caps(await call("describe_shortcut", { accel }));
+    pending = accel;
+    $("zone").classList.add("ok");
+    $("ksave").disabled = false;
+    kstatus("Clique sur Enregistrer pour l'utiliser.");
+  } catch (err) { refuse(String(err)); }
+});
+$("zone").addEventListener("keyup", (e) => { if (!pending && !error && !mods(e).length && MODIFIER_CODES.test(e.code)) idle(); });
+
+async function applyShortcut(accel) {
+  try {
+    current = await call("set_shortcut", { accel });
+    pending = null;
+    $("zone").blur();
+    idle();
+    toast("Raccourci enregistré : " + current);
+  } catch (err) {
+    refuse(String(err));
+    $("zone").focus();
+  }
+}
+$("ksave").onclick = () => pending && applyShortcut(pending);
+
+/* ---- Settings ---- */
+const MODEL_HINT = { "whisper-large-v3": "Meilleure orthographe", "whisper-large-v3-turbo": "Plus rapide, un peu moins précis" };
+function setModel(v) {
+  for (const b of $("model").children) b.classList.toggle("on", b.dataset.v === v);
+  $("model-hint").textContent = MODEL_HINT[v] || v;
+}
+const vocabList = () => $("vocab").value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+
+$("key").addEventListener("change", () => save({ groq_api_key: $("key").value.trim() }));
+$("key-show").onclick = () => {
+  const hidden = $("key").type === "password";
+  $("key").type = hidden ? "text" : "password";
+  $("key-show").textContent = hidden ? "Masquer" : "Afficher";
+};
+$("key-link").onclick = () => open("groq");
+$("lang").addEventListener("change", () => save({ language: $("lang").value }));
+for (const b of $("model").children) b.onclick = () => { setModel(b.dataset.v); save({ model: b.dataset.v }); };
+$("vocab").addEventListener("change", () => save({ vocabulary: vocabList() }));
+$("paste").addEventListener("change", () => save({ auto_paste: $("paste").checked }));
+$("dir").addEventListener("change", () => save({ output_dir: $("dir").value.trim() || null }));
+$("dir-open").onclick = () => open("tunnels");
+$("cfg-open").onclick = () => open("config");
+$("broken-open").onclick = () => open("config");
+
+async function load() {
+  let s;
+  try { s = await call("get_settings"); }
+  catch (err) {
+    document.body.classList.add("broken");
+    $("broken-msg").textContent = String(err);
+    return;
+  }
+  const c = s.config;
+  current = s.shortcut.label;
+  $("kreset").textContent = "Par défaut (" + s.shortcut.default + ")";
+  $("kreset").onclick = () => applyShortcut(s.shortcut.defaultAccel);
+  idle();
+
+  $("key").value = c.groq_api_key;
+  if (!c.groq_api_key && s.envKey) $("key-hint").textContent = "Clé lue depuis la variable GROQ_API_KEY. Une clé saisie ici passe avant.";
+  if (![...$("lang").options].some((o) => o.value === c.language)) $("lang").add(new Option(c.language, c.language));
+  $("lang").value = c.language;
+  setModel(c.model);
+  $("vocab").value = c.vocabulary.join("\n");
+  $("paste").checked = c.auto_paste;
+  $("dir").value = c.output_dir || "";
+  $("dir").placeholder = s.tunnelsDir;
+}
+load();
+</script>
+</body>
+</html>

@@ -73,7 +73,7 @@ flowchart LR
 | maintenir `Ctrl+Espace` | push-to-talk : relâcher envoie |
 | clic n'importe où | capture de l'écran, point du clic marqué, élément pointé nommé |
 | bord droit de l'écran | rail : `✎` dessiner · `▦` tableau blanc · `↵` envoyer · `×` annuler |
-| menu de l'icône › Raccourci | changer la combinaison : appuie sur celle que tu veux, puis Enregistrer |
+| menu de l'icône › Réglages | raccourci, clé Groq, langue, modèle, vocabulaire, collage, dossier |
 | `Échap` | quitte le dessin ou le tableau (hors dessin, Échap reste aux autres apps) |
 | clic droit en dessin | revient au direct |
 
@@ -93,7 +93,7 @@ Les binaires **ne sont pas encore signés**, ton système t'avertira au premier 
 ## Réglages
 
 Il te faut une [clé API Groq](https://console.groq.com/keys) gratuite. Au premier lancement, Unitunel écrit
-`config.json` (menu de l'icône › Réglages) :
+`config.json`. Tout se règle dans la fenêtre Réglages (menu de l'icône) ; le fichier reste modifiable à la main :
 
 ```json
 {

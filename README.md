@@ -73,7 +73,7 @@ flowchart LR
 | hold `Ctrl+Space` | push-to-talk: release to send |
 | click anywhere | screenshot, click point marked, element under the pointer named |
 | right edge of the screen | rail: `✎` draw · `▦` whiteboard · `↵` send · `×` cancel |
-| tray icon menu › Raccourci | change the key combination: press the one you want, then Enregistrer |
+| tray icon menu › Réglages | shortcut, Groq key, language, model, vocabulary, paste, folder |
 | `Esc` | leave drawing or the whiteboard (outside drawing, Esc goes to your other apps) |
 | right-click while drawing | back to live mode |
 
@@ -93,7 +93,7 @@ The binaries are **not signed** yet, so your OS will warn you on first launch:
 ## Setup
 
 You need a free [Groq API key](https://console.groq.com/keys). On first launch Unitunel writes a `config.json`
-(tray icon › *Réglages*):
+that you can edit in the Réglages window (tray icon › *Réglages*) or by hand:
 
 ```json
 {
