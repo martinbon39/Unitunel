@@ -40,7 +40,7 @@ struct App {
     pressed_at: Mutex<Option<(Instant, bool)>>,
     flushed: AtomicBool,
     over_rail: AtomicBool,
-    hotkey: Mutex<Option<Shortcut>>,
+    hotkeys: Mutex<Vec<Shortcut>>,
     key_item: Mutex<Option<MenuItem<tauri::Wry>>>,
 }
 
@@ -50,12 +50,27 @@ fn overlay(app: &AppHandle) -> WebviewWindow {
     app.get_webview_window("overlay").expect("overlay window")
 }
 
-fn configured_hotkey() -> Shortcut {
-    Config::load()
-        .shortcut
-        .parse()
-        .or_else(|_| config::DEFAULT_SHORTCUT.parse())
-        .expect("default shortcut")
+const MAX_SHORTCUTS: usize = 3;
+
+fn default_hotkey() -> Shortcut {
+    config::DEFAULT_SHORTCUT.parse().expect("default shortcut")
+}
+
+fn configured_hotkeys() -> Vec<Shortcut> {
+    let mut v: Vec<Shortcut> = Vec::new();
+    for sc in Config::load().shortcuts.iter().filter_map(|a| validate_shortcut(a).ok()) {
+        if !v.contains(&sc) && v.len() < MAX_SHORTCUTS {
+            v.push(sc);
+        }
+    }
+    if v.is_empty() {
+        v.push(default_hotkey());
+    }
+    v
+}
+
+fn shortcuts_label(v: &[Shortcut]) -> String {
+    v.iter().map(shortcut_label).collect::<Vec<_>>().join(" ou ")
 }
 
 /// Human label of a shortcut: "⌃⌥⇧⌘ Espace" on macOS, "Ctrl+Alt+Maj+Win+Espace" elsewhere.
@@ -79,6 +94,9 @@ fn shortcut_label(sc: &Shortcut) -> String {
         "ArrowDown" => "↓".to_string(),
         "ArrowLeft" => "←".to_string(),
         "ArrowRight" => "→".to_string(),
+        "PageDown" => "Page ↓".to_string(),
+        "PageUp" => "Page ↑".to_string(),
+        "Insert" => "Inser".to_string(),
         c => c.to_string(),
     };
     if mac {
@@ -98,9 +116,10 @@ fn validate_shortcut(accel: &str) -> Result<Shortcut, String> {
     if sc.key == Code::Escape {
         return Err("Échap sert déjà à quitter le dessin".into());
     }
-    if !fkey && !sc.mods.intersects(strong) {
+    let alone = fkey || ["PageUp", "PageDown", "Insert", "Pause", "ScrollLock"].contains(&key.as_str());
+    if !alone && !sc.mods.intersects(strong) {
         let mods = if cfg!(target_os = "macos") { "⌃, ⌥ ou ⌘" } else { "Ctrl, Alt ou Win" };
-        return Err(format!("Ajoute {mods} (ou choisis une touche F1–F24)"));
+        return Err(format!("Ajoute {mods}. Seules F1–F24, Page ↑, Page ↓, Inser et Pause marchent seules"));
     }
     let primary = if cfg!(target_os = "macos") { Modifiers::SUPER } else { Modifiers::CONTROL };
     let editing = ["KeyA", "KeyC", "KeyS", "KeyV", "KeyW", "KeyX", "KeyY", "KeyZ", "KeyQ", "Tab"];
@@ -117,8 +136,8 @@ fn validate_shortcut(accel: &str) -> Result<Shortcut, String> {
     Ok(sc)
 }
 
-fn refresh_shortcut_display(app: &AppHandle, sc: &Shortcut) {
-    let label = shortcut_label(sc);
+fn refresh_shortcut_display(app: &AppHandle, v: &[Shortcut]) {
+    let label = shortcuts_label(v);
     if let Some(item) = app.state::<State>().key_item.lock().as_ref() {
         let _ = item.set_text(format!("Raccourci : {label} — changer…"));
     }
@@ -129,16 +148,16 @@ fn refresh_shortcut_display(app: &AppHandle, sc: &Shortcut) {
 
 /// While the shortcut field has focus the global hotkey is released, so pressing it reaches the window.
 fn release_hotkey(app: &AppHandle) {
-    if let Some(sc) = *app.state::<State>().hotkey.lock() {
-        let _ = app.global_shortcut().unregister(sc);
+    for sc in app.state::<State>().hotkeys.lock().iter() {
+        let _ = app.global_shortcut().unregister(*sc);
     }
     let _ = app.global_shortcut().unregister(escape());
 }
 
 fn restore_hotkey(app: &AppHandle) {
-    if let Some(sc) = *app.state::<State>().hotkey.lock() {
-        if !app.global_shortcut().is_registered(sc) {
-            let _ = app.global_shortcut().register(sc);
+    for sc in app.state::<State>().hotkeys.lock().iter() {
+        if !app.global_shortcut().is_registered(*sc) {
+            let _ = app.global_shortcut().register(*sc);
         }
     }
     let st = app.state::<State>();
@@ -347,7 +366,7 @@ fn on_shortcut(app: &AppHandle, sc: &Shortcut, ev: ShortcutEvent) {
         }
         return;
     }
-    if Some(*sc) != *st.hotkey.lock() {
+    if !st.hotkeys.lock().contains(sc) {
         return;
     }
     match state {
@@ -423,13 +442,15 @@ fn flushed(st: tauri::State<State>) {
 #[tauri::command]
 fn get_settings(st: tauri::State<State>) -> Result<serde_json::Value, String> {
     let cfg = config::read_file()?;
-    let sc = st.hotkey.lock().unwrap_or_else(configured_hotkey);
-    let default: Shortcut = config::DEFAULT_SHORTCUT.parse().expect("default shortcut");
+    let current = st.hotkeys.lock().clone();
+    let describe = |sc: &Shortcut| json!({ "accel": sc.into_string(), "label": shortcut_label(sc) });
     Ok(json!({
         "config": cfg,
         "tunnelsDir": cfg.tunnels_dir(),
         "envKey": std::env::var("GROQ_API_KEY").map(|k| !k.trim().is_empty()).unwrap_or(false),
-        "shortcut": { "label": shortcut_label(&sc), "default": shortcut_label(&default), "defaultAccel": config::DEFAULT_SHORTCUT },
+        "shortcuts": current.iter().map(describe).collect::<Vec<_>>(),
+        "defaultShortcut": describe(&default_hotkey()),
+        "maxShortcuts": MAX_SHORTCUTS,
     }))
 }
 
@@ -472,29 +493,49 @@ fn describe_shortcut(accel: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn set_shortcut(app: AppHandle, st: tauri::State<State>, accel: String) -> Result<String, String> {
-    let sc = validate_shortcut(&accel)?;
-    // The capture field has released the old hotkey; leaving it registers whichever one is current.
+fn set_shortcuts(app: AppHandle, st: tauri::State<State>, accels: Vec<String>) -> Result<serde_json::Value, String> {
+    let mut list: Vec<Shortcut> = Vec::new();
+    for a in &accels {
+        let sc = validate_shortcut(a)?;
+        if !list.contains(&sc) {
+            list.push(sc);
+        }
+    }
+    if list.is_empty() {
+        return Err("Garde au moins un raccourci".into());
+    }
+    if list.len() > MAX_SHORTCUTS {
+        return Err(format!("{MAX_SHORTCUTS} raccourcis au maximum"));
+    }
+    // The capture field has released the old hotkeys; leaving it registers whichever ones are current.
     release_hotkey(&app);
-    if let Err(e) = app.global_shortcut().register(sc) {
-        let e = e.to_string();
-        return Err(if e.contains("already registered") || e.contains("RegisterEventHotKey failed") {
-            "Cette combinaison est déjà prise par une autre application".into()
-        } else if e.contains("Unknown") {
-            "Le système ne sait pas utiliser cette touche comme raccourci".into()
-        } else {
-            format!("Raccourci refusé : {e}")
-        });
+    for (i, sc) in list.iter().enumerate() {
+        if let Err(e) = app.global_shortcut().register(*sc) {
+            for done in &list[..i] {
+                let _ = app.global_shortcut().unregister(*done);
+            }
+            let e = e.to_string();
+            let label = shortcut_label(sc);
+            return Err(if e.contains("already registered") || e.contains("RegisterEventHotKey failed") {
+                format!("{label} est déjà pris par une autre application")
+            } else if e.contains("Unknown") {
+                format!("Le système ne sait pas utiliser {label} comme raccourci")
+            } else {
+                format!("{label} refusé : {e}")
+            });
+        }
     }
     let mut fields = serde_json::Map::new();
-    fields.insert("shortcut".into(), sc.into_string().into());
+    fields.insert("shortcuts".into(), list.iter().map(|sc| sc.into_string()).collect::<Vec<_>>().into());
     if let Err(e) = config::save_fields(fields) {
-        let _ = app.global_shortcut().unregister(sc);
+        for sc in &list {
+            let _ = app.global_shortcut().unregister(*sc);
+        }
         return Err(format!("Impossible d'enregistrer : {e}"));
     }
-    *st.hotkey.lock() = Some(sc);
-    refresh_shortcut_display(&app, &sc);
-    Ok(shortcut_label(&sc))
+    *st.hotkeys.lock() = list.clone();
+    refresh_shortcut_display(&app, &list);
+    Ok(json!(list.iter().map(|sc| json!({ "accel": sc.into_string(), "label": shortcut_label(sc) })).collect::<Vec<_>>()))
 }
 
 #[tauri::command]
@@ -510,16 +551,22 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(on_shortcut).build())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish, get_settings, save_settings, capture_shortcut, open_target, describe_shortcut, set_shortcut])
+        .invoke_handler(tauri::generate_handler![set_mode, stroke, board, flushed, finish, get_settings, save_settings, capture_shortcut, open_target, describe_shortcut, set_shortcuts])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let _ = overlay(app.handle()).set_ignore_cursor_events(true);
-            let hk = configured_hotkey();
-            match app.global_shortcut().register(hk) {
-                Ok(()) => *app.state::<State>().hotkey.lock() = Some(hk),
-                Err(e) => eprintln!("raccourci indisponible : {e}"),
-            }
+            let hk: Vec<Shortcut> = configured_hotkeys()
+                .into_iter()
+                .filter(|sc| match app.global_shortcut().register(*sc) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        eprintln!("raccourci {} indisponible : {e}", shortcut_label(sc));
+                        false
+                    }
+                })
+                .collect();
+            *app.state::<State>().hotkeys.lock() = hk.clone();
             {
                 use tauri_plugin_autostart::ManagerExt;
                 let al = app.autolaunch();
@@ -527,14 +574,14 @@ pub fn run() {
                     let _ = al.enable();
                 }
             }
-            let key_item = MenuItem::with_id(app, "key", format!("Raccourci : {} — changer…", shortcut_label(&hk)), true, None::<&str>)?;
+            let key_item = MenuItem::with_id(app, "key", format!("Raccourci : {} — changer…", shortcuts_label(&hk)), true, None::<&str>)?;
             let open_dir = MenuItem::with_id(app, "dir", "Ouvrir les tunnels", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "cfg", "Réglages…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&key_item, &open_dir, &settings, &quit])?;
             TrayIconBuilder::with_id("tray")
                 .icon(app.default_window_icon().cloned().expect("icon"))
-                .tooltip(format!("Unitunel · {}", shortcut_label(&hk)))
+                .tooltip(format!("Unitunel · {}", shortcuts_label(&hk)))
                 .menu(&menu)
                 .on_menu_event(move |app, e| match e.id().as_ref() {
                     "key" | "cfg" => open_settings_window(app),

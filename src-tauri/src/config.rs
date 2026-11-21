@@ -10,7 +10,7 @@ pub struct Config {
     pub vocabulary: Vec<String>,
     pub auto_paste: bool,
     pub output_dir: Option<PathBuf>,
-    pub shortcut: String,
+    pub shortcuts: Vec<String>,
 }
 
 impl Default for Config {
@@ -22,7 +22,7 @@ impl Default for Config {
             vocabulary: vec!["Unitunel".into(), "Claude Code".into()],
             auto_paste: true,
             output_dir: None,
-            shortcut: DEFAULT_SHORTCUT.into(),
+            shortcuts: vec![DEFAULT_SHORTCUT.into()],
         }
     }
 }

@@ -30,15 +30,19 @@ h2 { font: 400 11px "Mono", ui-monospace, monospace; letter-spacing: .14em; text
 .hint.err { color: var(--text); }
 .hint.err::before { content: "! "; font-weight: 700; }
 
-/* Shortcut capture */
-#zone { margin: 4px; padding: 22px 16px 16px; border-radius: 11px; outline: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 12px;
-  transition: background 200ms ease, box-shadow 200ms ease; }
-#zone:hover { background: #121212; }
-#zone:focus { background: #141414; box-shadow: 0 0 0 1px var(--line-strong) inset; cursor: default; animation: listen 1.6s ease-in-out infinite; }
+/* Shortcuts */
+.krows .krow-item { display: flex; align-items: center; gap: 10px; padding: 12px 16px; }
+.krows .krow-item + .krow-item { box-shadow: 0 -1px 0 var(--line); }
+.krow-item .caps { flex: 1; }
+.caps { display: flex; gap: 6px; min-height: 36px; align-items: center; flex-wrap: wrap; }
+.krow-item.editing { opacity: .35; }
+#zone { display: none; margin: 4px; padding: 20px 16px 16px; border-radius: 11px; outline: none; flex-direction: column; align-items: center; gap: 12px;
+  background: #141414; box-shadow: 0 0 0 1px var(--line-strong) inset; transition: box-shadow 200ms ease; }
+body.capturing #zone { display: flex; }
+#zone:focus { animation: listen 1.6s ease-in-out infinite; }
 #zone.ok { box-shadow: 0 0 0 1.5px var(--text) inset, 0 0 26px rgba(255,255,255,.12); animation: none; }
 @keyframes listen { 50% { box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset, 0 0 22px rgba(255,255,255,.06); } }
-#caps { display: flex; gap: 6px; min-height: 40px; align-items: center; }
-kbd { font: 400 15px/1 "Mono", ui-monospace, monospace; min-width: 40px; height: 40px; padding: 0 12px; border-radius: 9px;
+kbd { font: 400 14px/1 "Mono", ui-monospace, monospace; min-width: 36px; height: 36px; padding: 0 11px; border-radius: 9px;
   display: grid; place-items: center; background: var(--raised); color: var(--text);
   box-shadow: 0 0 0 1px var(--line-strong) inset, 0 2px 0 rgba(255,255,255,.06); animation: pop 260ms var(--ease-out); }
 kbd.wait { color: var(--faint); background: transparent; box-shadow: 0 0 0 1px var(--line) inset; }
@@ -46,7 +50,10 @@ kbd.wait { color: var(--faint); background: transparent; box-shadow: 0 0 0 1px v
 #kstatus { font-size: 12px; color: var(--dim); text-align: center; min-height: 17px; }
 #kstatus.err { color: var(--text); }
 #kstatus.err::before { content: "! "; font-weight: 700; }
-.krow { display: flex; gap: 8px; padding: 0 16px 14px; justify-content: flex-end; }
+.kfoot { display: flex; gap: 8px; padding: 12px 16px 14px; box-shadow: 0 -1px 0 var(--line); align-items: center; }
+.kfoot .hint { flex: 1; margin: 0; }
+.zbtns { display: flex; gap: 8px; }
+body.capturing .kfoot { display: none; }
 
 /* Controls */
 input[type=text], input[type=password], select, textarea { all: unset; box-sizing: border-box; background: var(--raised); border-radius: 8px; padding: 0 10px; height: 32px;
@@ -107,15 +114,21 @@ footer { margin-top: 24px; text-align: center; color: var(--faint); font-size: 1
   <button id="broken-open">Ouvrir config.json</button>
 </div>
 
-<h2>Raccourci</h2>
+<h2>Raccourcis</h2>
 <div class="card">
+  <div class="krows" id="krows"></div>
   <div id="zone" tabindex="0">
-    <div id="caps"></div>
+    <div class="caps" id="zcaps"></div>
     <div id="kstatus"></div>
+    <div class="zbtns">
+      <button id="zcancel">Annuler</button>
+      <button id="zsave" class="primary" disabled>Enregistrer</button>
+    </div>
   </div>
-  <div class="krow">
+  <div class="kfoot">
+    <div class="hint">Appuie une fois pour démarrer, une deuxième pour envoyer, ou maintiens pour parler.</div>
+    <button id="kadd">+ Ajouter</button>
     <button id="kreset"></button>
-    <button id="ksave" class="primary" disabled>Enregistrer</button>
   </div>
 </div>
 
@@ -194,32 +207,59 @@ async function save(fields) {
 }
 const open = (what) => call("open_target", { what }).catch((err) => toast(String(err), true));
 
-/* ---- Shortcut ---- */
-let current = "";
+/* ---- Shortcuts ---- */
+let list = [];        // [{ accel, label }]
+let max = 3;
+let slot = null;      // index being edited; list.length = a new one
 let pending = null;
 let error = false;
 
-function caps(label, waiting) {
+function caps(el, label, waiting) {
   const parts = mac ? (label.match(/^[⌃⌥⇧⌘]*/)[0].split("").concat(label.replace(/^[⌃⌥⇧⌘]*\s?/, "") || [])) : label.split("+");
-  $("caps").replaceChildren(...parts.filter(Boolean).map((p) => Object.assign(document.createElement("kbd"), { textContent: p })));
-  if (waiting) $("caps").appendChild(Object.assign(document.createElement("kbd"), { className: "wait", textContent: "…" }));
+  el.replaceChildren(...parts.filter(Boolean).map((p) => Object.assign(document.createElement("kbd"), { textContent: p })));
+  if (waiting) el.appendChild(Object.assign(document.createElement("kbd"), { className: "wait", textContent: "…" }));
+}
+function button(text, onclick) { return Object.assign(document.createElement("button"), { textContent: text, onclick }); }
+function renderList() {
+  $("krows").replaceChildren(...list.map((s, i) => {
+    const row = document.createElement("div");
+    row.className = "krow-item" + (slot === i ? " editing" : "");
+    const c = document.createElement("div");
+    c.className = "caps";
+    caps(c, s.label);
+    row.append(c, button("Changer", () => edit(i)));
+    if (list.length > 1) row.append(button("Retirer", () => applyShortcuts(list.filter((_, j) => j !== i).map((x) => x.accel))));
+    return row;
+  }));
+  $("kadd").style.display = list.length < max ? "" : "none";
 }
 function kstatus(text, err) { error = !!err; $("kstatus").textContent = text; $("kstatus").className = err ? "err" : ""; }
-function idle() {
+function listening() {
   pending = null;
-  $("ksave").disabled = true;
+  $("zsave").disabled = true;
   $("zone").classList.remove("ok");
-  caps(current);
-  kstatus(document.activeElement === $("zone")
-    ? "J'écoute… appuie sur la combinaison voulue."
-    : "Appuie une fois pour démarrer, une deuxième pour envoyer, ou maintiens pour parler. Clique ici pour le changer.");
+  $("zcaps").replaceChildren(Object.assign(document.createElement("kbd"), { className: "wait", textContent: "…" }));
+  kstatus("J'écoute… appuie sur la touche ou la combinaison voulue (Page ↓, Ctrl+Espace…)");
 }
 function refuse(text) {
   pending = null;
-  $("ksave").disabled = true;
+  $("zsave").disabled = true;
   $("zone").classList.remove("ok");
-  caps(current);
+  $("zcaps").replaceChildren(Object.assign(document.createElement("kbd"), { className: "wait", textContent: "…" }));
   kstatus(text, true);
+}
+function edit(i) {
+  slot = i;
+  document.body.classList.add("capturing");
+  renderList();
+  listening();
+  $("zone").focus();
+}
+function closeEditor() {
+  slot = null;
+  pending = null;
+  document.body.classList.remove("capturing");
+  renderList();
 }
 
 function mods(e) {
@@ -234,8 +274,8 @@ const MODIFIER_CODES = /^(Control|Alt|Shift|Meta|OS|AltGraph)(Left|Right)?$/;
 // Windows registers letters by virtual key, which follows the layout (AZERTY A = KeyQ); macOS registers the physical key.
 const keyName = (e) => (!mac && /^[a-z]$/i.test(e.key) ? "Key" + e.key.toUpperCase() : e.code);
 
-$("zone").addEventListener("focus", () => { call("capture_shortcut", { on: true }); if (!pending) idle(); });
-$("zone").addEventListener("blur", () => { call("capture_shortcut", { on: false }); if (!pending && !error) idle(); });
+$("zone").addEventListener("focus", () => call("capture_shortcut", { on: true }));
+$("zone").addEventListener("blur", () => call("capture_shortcut", { on: false }));
 $("zone").addEventListener("keydown", async (e) => {
   if (e.code === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey) return;
   e.preventDefault();
@@ -243,37 +283,43 @@ $("zone").addEventListener("keydown", async (e) => {
   const m = mods(e);
   if (MODIFIER_CODES.test(e.code)) {
     pending = null;
-    $("ksave").disabled = true;
+    $("zsave").disabled = true;
     $("zone").classList.remove("ok");
-    caps(m.map((x) => x[1]).join(mac ? "" : "+"), true);
+    caps($("zcaps"), m.map((x) => x[1]).join(mac ? "" : "+"), true);
     kstatus("Ajoute maintenant une touche (Espace, une lettre, F5…)");
     return;
   }
-  if (e.code === "Escape" && !m.length) { idle(); $("zone").blur(); return; }
+  if (e.code === "Escape" && !m.length) { closeEditor(); return; }
   const accel = m.map((x) => x[0]).concat(keyName(e)).join("+");
   try {
-    caps(await call("describe_shortcut", { accel }));
+    caps($("zcaps"), await call("describe_shortcut", { accel }));
     pending = accel;
     $("zone").classList.add("ok");
-    $("ksave").disabled = false;
+    $("zsave").disabled = false;
     kstatus("Clique sur Enregistrer pour l'utiliser.");
   } catch (err) { refuse(String(err)); }
 });
-$("zone").addEventListener("keyup", (e) => { if (!pending && !error && !mods(e).length && MODIFIER_CODES.test(e.code)) idle(); });
+$("zone").addEventListener("keyup", (e) => { if (!pending && !error && !mods(e).length && MODIFIER_CODES.test(e.code)) listening(); });
+$("zcancel").onclick = closeEditor;
+$("zsave").onclick = () => {
+  if (!pending) return;
+  const accels = list.map((x) => x.accel);
+  accels[slot] = pending;
+  applyShortcuts(accels);
+};
+$("kadd").onclick = () => edit(list.length);
 
-async function applyShortcut(accel) {
+async function applyShortcuts(accels) {
   try {
-    current = await call("set_shortcut", { accel });
-    pending = null;
-    $("zone").blur();
-    idle();
-    toast("Raccourci enregistré : " + current);
+    list = await call("set_shortcuts", { accels });
+    closeEditor();
+    toast(list.length > 1 ? "Raccourcis enregistrés" : "Raccourci enregistré : " + list[0].label);
   } catch (err) {
+    if (slot === null) { toast(String(err), true); return; }
     refuse(String(err));
     $("zone").focus();
   }
 }
-$("ksave").onclick = () => pending && applyShortcut(pending);
 
 /* ---- Settings ---- */
 const MODEL_HINT = { "whisper-large-v3": "Meilleure orthographe", "whisper-large-v3-turbo": "Plus rapide, un peu moins précis" };
@@ -308,10 +354,11 @@ async function load() {
     return;
   }
   const c = s.config;
-  current = s.shortcut.label;
-  $("kreset").textContent = "Par défaut (" + s.shortcut.default + ")";
-  $("kreset").onclick = () => applyShortcut(s.shortcut.defaultAccel);
-  idle();
+  list = s.shortcuts;
+  max = s.maxShortcuts;
+  $("kreset").textContent = "Par défaut (" + s.defaultShortcut.label + ")";
+  $("kreset").onclick = () => applyShortcuts([s.defaultShortcut.accel]);
+  renderList();
 
   $("key").value = c.groq_api_key;
   if (!c.groq_api_key && s.envKey) $("key-hint").textContent = "Clé lue depuis la variable GROQ_API_KEY. Une clé saisie ici passe avant.";

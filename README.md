@@ -114,7 +114,7 @@ that you can edit in the Réglages window (tray icon › *Réglages*) or by hand
 | `vocabulary` | proper nouns Whisper should spell right |
 | `auto_paste` | paste the tunnel into the active window, or only copy it |
 | `output_dir` | where tunnels are saved (default `Documents/Unitunel`) |
-| `shortcut` | the key combination (`Control+Space`, `Alt+Space`…), easier to change from the tray menu |
+| `shortcuts` | up to 3 shortcuts (`["Control+Space", "PageDown"]`), easier to change in Réglages |
 
 Location: `%APPDATA%\unitunel\config.json` on Windows, `~/Library/Application Support/unitunel/config.json` on macOS.
 
